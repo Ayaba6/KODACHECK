@@ -8,11 +8,10 @@ export default function CameraScanner({ onScanComplete, onClose }) {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState('');
 
-  // Démarrer la caméra du téléphone/PC
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' } // Utilise la caméra arrière du mobile
+        video: { facingMode: 'environment' }
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -23,7 +22,6 @@ export default function CameraScanner({ onScanComplete, onClose }) {
     }
   };
 
-  // Arrêter la caméra
   const stopCamera = () => {
     if (videoRef.current && videoRef.current.srcObject) {
       const stream = videoRef.current.srcObject;
@@ -32,14 +30,12 @@ export default function CameraScanner({ onScanComplete, onClose }) {
     }
   };
 
-  // Capturer la photo et lancer l'OCR
   const captureAndRecognize = async () => {
     if (!videoRef.current) return;
 
     setLoading(true);
     setProgress('Capture de l image...');
 
-    // Création d'un canvas pour capturer la frame actuelle
     const canvas = document.createElement('canvas');
     canvas.width = videoRef.current.videoWidth;
     canvas.height = videoRef.current.videoHeight;
@@ -49,12 +45,11 @@ export default function CameraScanner({ onScanComplete, onClose }) {
     const imageData = canvas.toDataURL('image/png');
     stopCamera();
 
-    // Analyse du texte présent sur l'image avec Tesseract
     setProgress('Analyse de la plaque...');
     try {
       const { data: { text } } = await Tesseract.recognize(
         imageData,
-        'eng', // Anglais/Chiffres standard
+        'eng',
         {
           logger: m => {
             if (m.status === 'recognizing text') {
@@ -64,7 +59,6 @@ export default function CameraScanner({ onScanComplete, onClose }) {
         }
       );
 
-      // Nettoyage du texte détecté (ne garder que les caractères alphanumériques et tirets)
       const cleanText = text.replace(/[^A-Z0-9-]/gi, '').trim();
       onScanComplete(cleanText);
     } catch (err) {
@@ -89,7 +83,6 @@ export default function CameraScanner({ onScanComplete, onClose }) {
           <Camera className="w-5 h-5 text-blue-500" /> Scanner la plaque
         </h3>
 
-        {/* Aperçu vidéo */}
         <div className="relative w-full aspect-video bg-black rounded-xl overflow-hidden border border-slate-700 flex items-center justify-center mb-4">
           <video 
             ref={videoRef} 
@@ -114,7 +107,6 @@ export default function CameraScanner({ onScanComplete, onClose }) {
           )}
         </div>
 
-        {/* Bouton de prise de photo */}
         {isCameraActive && !loading && (
           <button
             onClick={captureAndRecognize}

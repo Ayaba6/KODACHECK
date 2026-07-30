@@ -1,167 +1,378 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Search, Camera, AlertTriangle, CheckCircle, LogOut, Car, ShieldAlert } from 'lucide-react';
-import CameraScanner from '../components/CameraScanner'; // Import du scanner
+import { localDb } from '../lib/db';
+import { syncVehiclesWithLocalDB } from '../lib/syncService';
+import { Search, Camera, CheckCircle, LogOut, Car, ShieldAlert, Wifi, WifiOff, RefreshCw, Bell, X, List, ChevronRight, AlertTriangle } from 'lucide-react';
+import CameraScanner from '../components/CameraScanner';
 
 export default function AgentDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
-  const [searched, setSearched] = useState(false);
+  const [selectedVehicle, setSelectedVehicle] = useState(null);
   const [showCamera, setShowCamera] = useState(false);
 
-  const handleSearch = async (termToSearch = searchTerm) => {
-    if (!termToSearch.trim()) return;
+  // Liste des 20 derniers engins volés
+  const [recentStolen, setRecentStolen] = useState([]);
 
-    setLoading(true);
-    setSearched(true);
-    setResult(null);
+  // Gestion réseau & synchro
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState(localStorage.getItem('last_sync_time') || 'Jamais');
+  const [realtimeAlert, setRealtimeAlert] = useState(null);
 
-    const cleanTerm = termToSearch.trim().toUpperCase();
-
-    const { data, error } = await supabase
-      .from('stolen_vehicles')
-      .select('*')
-      .or(`plate_number.ilike.${cleanTerm},vin.ilike.${cleanTerm}`)
-      .eq('status', 'STOLEN')
-      .maybeSingle();
-
-    if (!error && data) {
-      setResult(data);
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission !== "granted") {
+      Notification.requestPermission();
     }
 
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    loadRecentStolen('');
+
+    const channel = supabase
+      .channel('realtime_stolen_vehicles')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'stolen_vehicles' },
+        async (payload) => {
+          const newVehicle = payload.new;
+          setRealtimeAlert(newVehicle);
+
+          if (Notification.permission === "granted") {
+            new Notification("🚨 ALERTE VÉHICULE VOLÉ", {
+              body: `Plaque : ${newVehicle.plate_number} (${newVehicle.brand} ${newVehicle.model}) - ${newVehicle.owner_name}`,
+            });
+          }
+
+          await localDb.stolen_vehicles.put(newVehicle);
+          const now = new Date().toLocaleString();
+          localStorage.setItem('last_sync_time', now);
+          setLastSync(now);
+
+          loadRecentStolen(searchTerm);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const loadRecentStolen = async (query = searchTerm) => {
+    setLoading(true);
+    setSelectedVehicle(null);
+    const cleanQuery = query.trim().toUpperCase();
+
+    if (navigator.onLine) {
+      let req = supabase
+        .from('stolen_vehicles')
+        .select('*')
+        .eq('status', 'STOLEN')
+        .order('created_at', { ascending: false });
+
+      if (cleanQuery) {
+        req = req.or(`plate_number.ilike.%${cleanQuery}%,vin.ilike.%${cleanQuery}%,owner_name.ilike.%${cleanQuery}%`);
+      }
+
+      const { data } = await req.limit(20);
+      setRecentStolen(data || []);
+    } else {
+      let collection = localDb.stolen_vehicles.reverse();
+
+      if (cleanQuery) {
+        const filtered = await collection
+          .filter(v => 
+            (v.plate_number && v.plate_number.toUpperCase().includes(cleanQuery)) ||
+            (v.vin && v.vin.toUpperCase().includes(cleanQuery)) ||
+            (v.owner_name && v.owner_name.toUpperCase().includes(cleanQuery))
+          )
+          .limit(20)
+          .toArray();
+        setRecentStolen(filtered);
+      } else {
+        const allLocal = await collection.limit(20).toArray();
+        setRecentStolen(allLocal);
+      }
+    }
     setLoading(false);
   };
 
-  const handleFormSubmit = (e) => {
+  const handleSync = async () => {
+    setIsSyncing(true);
+    const success = await syncVehiclesWithLocalDB();
+    if (success) {
+      setLastSync(localStorage.getItem('last_sync_time'));
+      loadRecentStolen(searchTerm);
+    }
+    setIsSyncing(false);
+  };
+
+  const handleSearchSubmit = (e) => {
     e.preventDefault();
-    handleSearch(searchTerm);
+    loadRecentStolen(searchTerm);
   };
-
-  // Rappel lors de la détection réussie par photo
-  const handleScanComplete = (scannedText) => {
-    setShowCamera(false);
-    setSearchTerm(scannedText);
-    handleSearch(scannedText); // Lance la recherche automatique avec le texte scanné
-  };
-
-  const handleLogout = () => supabase.auth.signOut();
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      <header className="bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center">
-        <div className="flex items-center gap-2">
-          <Car className="w-6 h-6 text-blue-500" />
-          <span className="font-bold text-lg">Contrôle Agent</span>
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col relative">
+      
+      {/* BANNIÈRE FLASH TEMPS RÉEL */}
+      {realtimeAlert && (
+        <div className="bg-red-600 text-white p-3 sm:p-4 shadow-2xl border-b border-red-500 animate-bounce flex items-center justify-between z-50">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <Bell className="w-5 h-5 sm:w-6 sm:h-6 shrink-0 animate-spin" />
+            <div className="truncate">
+              <p className="font-extrabold text-xs sm:text-sm uppercase tracking-wide truncate">
+                NOUVEAU SIGNALEMENT DE VOL !
+              </p>
+              <p className="text-xs text-red-100 font-mono truncate">
+                Plaque : <span className="font-bold underline">{realtimeAlert.plate_number}</span> ({realtimeAlert.brand} {realtimeAlert.model})
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => {
+                setSelectedVehicle(realtimeAlert);
+                setRealtimeAlert(null);
+              }}
+              className="bg-white text-red-600 font-bold text-xs px-2.5 py-1.5 sm:px-3 rounded-lg shadow hover:bg-red-50"
+            >
+              Voir
+            </button>
+            <button 
+              onClick={() => setRealtimeAlert(null)}
+              className="text-red-200 hover:text-white p-1"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
-        <button 
-          onClick={handleLogout}
-          className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
-        >
-          <LogOut className="w-5 h-5" />
-        </button>
+      )}
+
+      {/* HEADER RESPONSIVE */}
+      <header className="bg-slate-900 border-b border-slate-800 px-4 py-3 sm:px-6 sticky top-0 z-40">
+        <div className="max-w-4xl mx-auto flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <Car className="w-6 h-6 text-blue-500 shrink-0" />
+            <span className="font-bold text-base sm:text-lg tracking-tight">Contrôle Agent</span>
+          </div>
+
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* Tag réseau adaptatif */}
+            <div className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border ${
+              isOnline ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+            }`}>
+              {isOnline ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
+              <span className="hidden sm:inline">{isOnline ? 'En ligne' : 'Hors ligne'}</span>
+            </div>
+
+            {isOnline && (
+              <button
+                onClick={handleSync}
+                disabled={isSyncing}
+                className="p-2 bg-slate-800 text-slate-300 hover:text-white rounded-lg border border-slate-700 transition-colors"
+                title="Synchroniser la base locale"
+              >
+                <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-blue-400' : ''}`} />
+              </button>
+            )}
+
+            <button 
+              onClick={() => supabase.auth.signOut()}
+              className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+              title="Déconnexion"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
       </header>
 
-      <main className="flex-1 max-w-lg w-full mx-auto p-4 flex flex-col justify-center">
+      {/* BARRE STATUT SYNCHRO */}
+      <div className="bg-slate-900/50 border-b border-slate-800/60 px-4 py-1.5 text-center text-xs text-slate-400">
+        Dernière mise à jour locale : <span className="text-slate-200 font-mono">{lastSync}</span>
+      </div>
+
+      <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 flex flex-col">
         
-        {/* Formulaire avec bouton Photo */}
-        <form onSubmit={handleFormSubmit} className="mb-6">
-          <label className="block text-sm font-medium mb-2 text-slate-300">
-            Recherche par Immatriculation / VIN ou Photo
+        {/* BARRE DE RECHERCHE RESPONSIVE */}
+        <form onSubmit={handleSearchSubmit} className="mb-6">
+          <label className="block text-xs sm:text-sm font-medium mb-2 text-slate-300">
+            Recherche par Immatriculation, VIN ou Nom
           </label>
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
+            
+            {/* Champ texte */}
             <div className="relative flex-1">
               <Search className="w-5 h-5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Ex: 11-JJ-4567"
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3.5 pl-10 pr-4 text-white font-mono text-lg placeholder-slate-600 focus:outline-none focus:border-blue-500 uppercase"
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  loadRecentStolen(e.target.value);
+                }}
+                placeholder="Ex: 11-JJ-4567..."
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-8 text-white font-mono text-base uppercase focus:outline-none focus:border-blue-500"
               />
+              {searchTerm && (
+                <button 
+                  type="button"
+                  onClick={() => { setSearchTerm(''); loadRecentStolen(''); }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
             </div>
-            
-            {/* Bouton pour ouvrir le scanner de caméra */}
-            <button
-              type="button"
-              onClick={() => setShowCamera(true)}
-              className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-blue-400 p-3.5 rounded-xl transition-colors"
-              title="Scanner avec la caméra"
-            >
-              <Camera className="w-6 h-6" />
-            </button>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 rounded-xl transition-colors disabled:opacity-50"
-            >
-              {loading ? '...' : 'Vérifier'}
-            </button>
+            {/* Boutons d'actions (Caméra + Rechercher) */}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCamera(true)}
+                className="flex-1 sm:flex-none justify-center bg-slate-800 hover:bg-slate-700 border border-slate-700 text-blue-400 p-3 rounded-xl transition-colors flex items-center gap-2"
+                title="Scanner une plaque"
+              >
+                <Camera className="w-5 h-5" />
+                <span className="sm:hidden text-sm font-medium">Scanner</span>
+              </button>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex-1 sm:flex-none justify-center bg-blue-600 hover:bg-blue-500 text-white font-semibold px-5 py-3 rounded-xl transition-colors flex items-center gap-2 disabled:opacity-50"
+              >
+                <Search className="w-4 h-4" />
+                <span className="text-sm">{loading ? '...' : 'Rechercher'}</span>
+              </button>
+            </div>
+
           </div>
         </form>
 
-        {/* Modal Caméra */}
         {showCamera && (
           <CameraScanner 
-            onScanComplete={handleScanComplete}
+            onScanComplete={(text) => {
+              setShowCamera(false);
+              setSearchTerm(text);
+              loadRecentStolen(text);
+            }}
             onClose={() => setShowCamera(false)}
           />
         )}
 
-        {/* Affichage des résultats */}
-        {searched && !loading && (
-          <div>
-            {result ? (
-              <div className="bg-red-950/40 border-2 border-red-600 rounded-2xl p-6 shadow-red-950/50 shadow-2xl animate-pulse">
-                <div className="flex items-center gap-3 text-red-500 mb-4">
-                  <ShieldAlert className="w-10 h-10 shrink-0" />
-                  <div>
-                    <h2 className="text-xl font-extrabold uppercase tracking-wide">Signalé Volé !</h2>
-                    <p className="text-xs text-red-400">Interception recommandée</p>
-                  </div>
-                </div>
+        {/* FICHE DÉTAIL ENGIN SÉLECTIONNÉ */}
+        {selectedVehicle && (
+          <div className="mb-6 bg-red-950/50 border-2 border-red-600 rounded-2xl p-4 sm:p-5 relative shadow-2xl animate-fadeIn">
+            <button 
+              onClick={() => setSelectedVehicle(null)}
+              className="absolute top-3 right-3 text-red-400 hover:text-white p-1"
+            >
+              <X className="w-5 h-5" />
+            </button>
 
-                <div className="space-y-3 bg-red-900/20 p-4 rounded-xl border border-red-800/40 font-mono text-sm">
-                  <div>
-                    <span className="text-red-400 text-xs uppercase block">Propriétaire déclaré</span>
-                    <span className="text-lg font-bold text-white">{result.owner_name || 'Non renseigné'}</span>
-                  </div>
-                  <div>
-                    <span className="text-red-400 text-xs uppercase block">Immatriculation</span>
-                    <span className="text-lg font-bold text-white">{result.plate_number}</span>
-                  </div>
-                  {result.vin && (
-                    <div>
-                      <span className="text-red-400 text-xs uppercase block">Numéro Châssis (VIN)</span>
-                      <span className="text-white">{result.vin}</span>
-                    </div>
-                  )}
-                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-red-800/40">
-                    <div>
-                      <span className="text-red-400 text-xs block">Marque / Modèle</span>
-                      <span className="text-white">{result.brand} {result.model}</span>
-                    </div>
-                    <div>
-                      <span className="text-red-400 text-xs block">Couleur</span>
-                      <span className="text-white">{result.color || 'Non spécifiée'}</span>
-                    </div>
-                  </div>
-                  <div className="pt-2 border-t border-red-800/40">
-                    <span className="text-red-400 text-xs block">N° de Déclaration / PV</span>
-                    <span className="text-white font-bold">{result.report_number}</span>
-                  </div>
+            <div className="flex items-center gap-3 text-red-500 mb-4">
+              <ShieldAlert className="w-7 h-7 sm:w-8 sm:h-8 shrink-0" />
+              <div>
+                <h2 className="text-base sm:text-lg font-extrabold uppercase">Signalé Volé !</h2>
+                <p className="text-xs text-red-400">PV N° : {selectedVehicle.report_number}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-red-900/20 p-4 rounded-xl border border-red-800/40 font-mono text-sm">
+              <div>
+                <span className="text-red-400 text-xs block uppercase">Propriétaire</span>
+                <span className="text-base font-bold text-white">{selectedVehicle.owner_name || 'Non renseigné'}</span>
+              </div>
+              <div>
+                <span className="text-red-400 text-xs block uppercase">Immatriculation</span>
+                <span className="text-lg sm:text-xl font-bold text-white">{selectedVehicle.plate_number}</span>
+              </div>
+              {selectedVehicle.vin && (
+                <div className="sm:col-span-2">
+                  <span className="text-red-400 text-xs block uppercase">Châssis (VIN)</span>
+                  <span className="text-white break-all">{selectedVehicle.vin}</span>
                 </div>
+              )}
+              <div>
+                <span className="text-red-400 text-xs block">Engin</span>
+                <span className="text-white">{selectedVehicle.brand} {selectedVehicle.model}</span>
               </div>
-            ) : (
-              <div className="bg-emerald-950/30 border border-emerald-500/40 rounded-2xl p-6 text-center">
-                <CheckCircle className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
-                <h2 className="text-lg font-bold text-emerald-400">Aucun signalement de vol</h2>
-                <p className="text-slate-400 text-sm mt-1">L'immatriculation recherchée n'apparaît pas au fichier des engins volés.</p>
+              <div>
+                <span className="text-red-400 text-xs block">Couleur</span>
+                <span className="text-white">{selectedVehicle.color || 'N/A'}</span>
               </div>
-            )}
+            </div>
           </div>
         )}
+
+        {/* LISTE DES 20 DERNIÈRES DÉCLARATIONS DE VOL */}
+        <div className="flex-1">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2 text-slate-300 font-semibold text-sm">
+              <List className="w-4 h-4 text-blue-500" />
+              <span>
+                {searchTerm ? 'Résultats de recherche' : '20 Dernières Déclarations'}
+              </span>
+            </div>
+            <span className="text-xs font-mono bg-slate-800 text-slate-400 px-2.5 py-1 rounded-full border border-slate-700">
+              {recentStolen.length} engins
+            </span>
+          </div>
+
+          {loading ? (
+            <div className="text-center py-8 text-slate-500 text-sm">Chargement des données...</div>
+          ) : recentStolen.length === 0 ? (
+            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-8 text-center">
+              <CheckCircle className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
+              <p className="text-sm font-semibold text-slate-300">Aucun signalement trouvé</p>
+              <p className="text-xs text-slate-500 mt-1">Aucune déclaration ne correspond à votre recherche.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {recentStolen.map((vehicle) => (
+                <div
+                  key={vehicle.id}
+                  onClick={() => setSelectedVehicle(vehicle)}
+                  className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+                    selectedVehicle?.id === vehicle.id 
+                      ? 'bg-red-950/40 border-red-600' 
+                      : 'bg-slate-900/90 border-slate-800 hover:border-slate-700 hover:bg-slate-800/60'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="p-2 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 shrink-0">
+                      <AlertTriangle className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 truncate">
+                        <span className="font-mono font-bold text-white text-sm sm:text-base">{vehicle.plate_number}</span>
+                      </div>
+                      <p className="text-xs text-slate-400 truncate">
+                        {vehicle.brand} {vehicle.model}
+                      </p>
+                      <p className="text-xs text-slate-500 truncate">
+                        Prop. : <span className="text-slate-300">{vehicle.owner_name || 'Inconnu'}</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <ChevronRight className="w-5 h-5 text-slate-600 shrink-0" />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
       </main>
     </div>
   );
