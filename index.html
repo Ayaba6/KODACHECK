@@ -1,12 +1,28 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="fr">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    
+    <!-- Titre de l'onglet -->
+    <title>KODACHECK</title>
+
+    <!-- Fichier manifeste PWA -->
+    <link rel="manifest" href="/manifest.json" />
+
+    <!-- Favicon / Icône standard -->
+    <link rel="icon" type="image/png" href="/icon-192.png" />
+
+    <!-- Prise en charge iOS (iPhone / iPad) -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="KODACHECK" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+
+    <!-- Couleur du thème navigateur -->
+    <meta name="theme-color" content="#0f172a" />
   </head>
-  <body>
+  <body class="bg-slate-950 text-slate-100">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

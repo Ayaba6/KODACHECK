@@ -81,7 +81,6 @@ export default function AdminDashboard() {
     setActionLoading(vehicleId);
     setMessage(null);
 
-    // .select() permet d'obtenir les enregistrements modifiés et d'exposer d'éventuels blocages RLS
     const { data, error } = await supabase
       .from('stolen_vehicles')
       .update({ status: 'RECOVERED' })
@@ -93,7 +92,7 @@ export default function AdminDashboard() {
     } else if (!data || data.length === 0) {
       setMessage({ 
         type: 'error', 
-        text: "Mise à jour bloquée. Vérifiez que la règle RLS d'UPDATE est bien activée dans Supabase pour la table stolen_vehicles." 
+        text: "Mise à jour bloquée. Vérifiez la règle RLS UPDATE dans Supabase." 
       });
     } else {
       setMessage({ type: 'success', text: `Le véhicule plaque ${plate} a été marqué comme retrouvé.` });
@@ -122,8 +121,11 @@ export default function AdminDashboard() {
       <header className="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto flex justify-between items-center gap-4">
           <div className="flex items-center gap-2">
-            <Shield className="w-6 h-6 text-blue-500 shrink-0" />
-            <span className="font-bold text-base sm:text-lg tracking-tight">Admin - Sécurité Routière</span>
+            <Shield className="w-7 h-7 text-blue-500 shrink-0" />
+            <div className="flex flex-col">
+              <span className="font-extrabold text-lg tracking-wider text-blue-400">KODACHECK</span>
+              <span className="text-[10px] uppercase text-slate-400 font-semibold tracking-widest -mt-1">Espace Admin</span>
+            </div>
           </div>
           <button 
             onClick={() => supabase.auth.signOut()}
@@ -255,17 +257,15 @@ export default function AdminDashboard() {
         {/* Registre Général */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl flex-1 flex flex-col">
           
-          {/* HEADER DU REGISTRE + BARRE DE RECHERCHE */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-800">
             <div className="flex items-center gap-2">
               <List className="w-5 h-5 text-blue-500" />
-              <h2 className="font-bold text-lg">Registre Général</h2>
+              <h2 className="font-bold text-lg">Registre Général KODACHECK</h2>
               <span className="text-xs font-mono bg-slate-800 text-slate-300 px-2.5 py-1 rounded-full border border-slate-700">
                 {filteredVehicles.length} {registrySearch ? `/ ${vehicles.length}` : ''} engins
               </span>
             </div>
 
-            {/* Champ de recherche local */}
             <div className="relative w-full sm:w-72">
               <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
