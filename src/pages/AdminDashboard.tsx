@@ -1,21 +1,21 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
-import { Shield, PlusCircle, LogOut, AlertCircle, List, CheckCircle, PackageCheck, Truck, Loader2, Search, X, Printer, Lock } from 'lucide-react';
+import { Shield, PlusCircle, LogOut, AlertCircle, List, CheckCircle, PackageCheck, Truck, Loader2, Search, X, Printer, Lock, Calendar, User, Tag } from 'lucide-react';
 
 // Listes de données prédéfinies pour les menus déroulants
 const MARQUES_ET_MODELES = {
-  "Yamaha": ["Sirius", "Spark", "Crypton", "Force X", "RayZR", "125", "DT", "YZF-R", " Autre / Non spécifié"],
-  "KTM": ["Duke 125", "Duke 200", "Duke 390", "RC 200", "EXC", " Autre / Non spécifié"],
-  "TVS": ["HLX 125", "HLX 150", "Apache RTR", "Star HLX", "Neo NX", " Autre / Non spécifié"],
-  "Honda": ["CGL 125", "CB 125", "Wave", "Ace 110", "PCX", "XR 150", " Autre / Non spécifié"],
-  "Sanili": ["SL 125", "SL 150", "SL 110", " Autre / Non spécifié"],
-  "Rato": ["RT 125", "RT 150", " Autre / Non spécifié"],
-  "Suzuki": ["GN 125", "GSX-R", "Smash", "Burgman", " Autre / Non spécifié"],
-  "Kaizer": ["KZ 125", "KZ 150", " Autre / Non spécifié"],
-  "Nanfang": ["NF 125", "NF 150", " Autre / Non spécifié"],
-  "Toyota": ["Hilux", "Corolla", "Land Cruiser", "Yaris", "RAV4", "Prado", " Autre / Non spécifié"],
-  "Hyundai": ["Tucson", "Santa Fe", "Elantra", "Accent", "i10", " Autre / Non spécifié"],
-  "Mercedes-Benz": ["Classe C", "Classe E", "GLC", "GLE", "Sprinter", " Autre / Non spécifié"],
+  "Yamaha": ["Sirius", "Spark", "Crypton", "Force X", "RayZR", "125", "DT", "YZF-R", "Autre / Non spécifié"],
+  "KTM": ["Duke 125", "Duke 200", "Duke 390", "RC 200", "EXC", "Autre / Non spécifié"],
+  "TVS": ["HLX 125", "HLX 150", "Apache RTR", "Star HLX", "Neo NX", "Autre / Non spécifié"],
+  "Honda": ["CGL 125", "CB 125", "Wave", "Ace 110", "PCX", "XR 150", "Autre / Non spécifié"],
+  "Sanili": ["SL 125", "SL 150", "SL 110", "Autre / Non spécifié"],
+  "Rato": ["RT 125", "RT 150", "Autre / Non spécifié"],
+  "Suzuki": ["GN 125", "GSX-R", "Smash", "Burgman", "Autre / Non spécifié"],
+  "Kaizer": ["KZ 125", "KZ 150", "Autre / Non spécifié"],
+  "Nanfang": ["NF 125", "NF 150", "Autre / Non spécifié"],
+  "Toyota": ["Hilux", "Corolla", "Land Cruiser", "Yaris", "RAV4", "Prado", "Autre / Non spécifié"],
+  "Hyundai": ["Tucson", "Santa Fe", "Elantra", "Accent", "i10", "Autre / Non spécifié"],
+  "Mercedes-Benz": ["Classe C", "Classe E", "GLC", "GLE", "Sprinter", "Autre / Non spécifié"],
   "Peugeot": ["206", "207", "208", "301", "308", "3008", "Autre / Non spécifié"],
   "Autre": ["Modèle standard / Inconnu"]
 };
@@ -65,7 +65,7 @@ export default function AdminDashboard() {
   const handleBrandChange = (e) => {
     const selectedBrand = e.target.value;
     setBrand(selectedBrand);
-    setModel(''); // réinitialise le modèle sélectionné
+    setModel('');
   };
 
   // Génération automatique du numéro de PV selon le mois (ex: PV-202608-0001)
@@ -135,7 +135,6 @@ export default function AdminDashboard() {
     if (e) e.preventDefault();
     setMessage(null);
 
-    // Vérification globale des champs requis
     if (
       !ownerName.trim() ||
       !plateNumber.trim() ||
@@ -180,7 +179,6 @@ export default function AdminDashboard() {
         text: 'Engin enregistré avec succès ! Lancement de l\'impression du récépissé...' 
       });
 
-      // Réinitialisation des champs
       setPlateNumber('');
       setVin('');
       setBrand('');
@@ -190,7 +188,6 @@ export default function AdminDashboard() {
       fetchStolenVehicles();
       generateNextReportNumber();
 
-      // Déclenchement automatique de l'aperçu/impression
       triggerPrint(createdVehicle);
     }
     setLoading(false);
@@ -224,7 +221,6 @@ export default function AdminDashboard() {
     setActionLoading(null);
   };
 
-  // Filtrage dynamique des véhicules du registre
   const filteredVehicles = useMemo(() => {
     const q = registrySearch.trim().toLowerCase();
     if (!q) return vehicles;
@@ -241,12 +237,10 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      {/* SECTION IMPRESSION - Cachée à l'écran, visible uniquement à l'impression */}
+      {/* IMPRESSION */}
       {printableVehicle && (
         <div className="hidden print:block print:fixed print:inset-0 print:bg-white print:text-black print:p-8 print:z-[9999]">
           <div className="max-w-2xl mx-auto border-4 border-slate-900 p-8 rounded-lg relative">
-            
-            {/* Entête Récépissé */}
             <div className="flex justify-between items-start border-b-2 border-slate-900 pb-4 mb-6">
               <div>
                 <h1 className="text-3xl font-extrabold tracking-wider text-slate-900">KODACHECK</h1>
@@ -262,7 +256,6 @@ export default function AdminDashboard() {
               <h2 className="text-xl font-bold uppercase underline tracking-wide">Attestation d'Enregistrement de Plainte / Vol</h2>
             </div>
 
-            {/* Informations Clés */}
             <div className="grid grid-cols-2 gap-4 text-sm mb-6 border p-4 rounded bg-slate-50">
               <div>
                 <p className="text-xs text-slate-500 uppercase font-semibold">Numéro de PV / Déclaration</p>
@@ -278,7 +271,6 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* Détails du Véhicule */}
             <h3 className="font-bold text-sm uppercase text-slate-700 mb-2 border-b pb-1">Détails de l'engin recherché</h3>
             <div className="grid grid-cols-2 gap-y-3 text-sm mb-8">
               <div>
@@ -299,13 +291,11 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* Message de confirmation */}
             <div className="border border-dashed border-slate-400 p-3 rounded text-xs text-slate-600 mb-8 bg-slate-50">
               Ce document atteste que l'engin désigné ci-dessus a été inscrit dans la base de données active de <strong>KODACHECK</strong>.
               Toutes les forces de l'ordre et agents de contrôle réseau sont informés et habilités à intercepter ce véhicule.
             </div>
 
-            {/* Signature / Cachet */}
             <div className="flex justify-between items-end mt-12 pt-4">
               <div className="text-center w-40 border-t border-slate-300 pt-1">
                 <p className="text-xs text-slate-500">Signature du Déclarant</p>
@@ -317,12 +307,11 @@ export default function AdminDashboard() {
                 </div>
               </div>
             </div>
-
           </div>
         </div>
       )}
 
-      {/* DASHBOARD - Caché lors de l'impression */}
+      {/* DASHBOARD PRINCIPAL */}
       <div className="print:hidden flex flex-col flex-1">
         <header className="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-40">
           <div className="max-w-7xl mx-auto flex justify-between items-center gap-4">
@@ -345,7 +334,7 @@ export default function AdminDashboard() {
 
         <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 lg:p-8 flex flex-col gap-8">
           
-          {/* Alerts */}
+          {/* Messages de Notification */}
           {message && (
             <div className={`p-4 rounded-xl flex items-start gap-3 text-sm animate-fadeIn ${
               message.type === 'success' ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'
@@ -454,12 +443,12 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* Champ N° PV AUTO-GÉNÉRÉ */}
+              {/* PV AUTO-GÉNÉRÉ */}
               <div className="lg:col-span-2">
                 <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-semibold uppercase text-slate-400">N° de PV / Déclaration (Généré auto)</label>
+                  <label className="block text-xs font-semibold uppercase text-slate-400">N° de PV / Déclaration</label>
                   <span className="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded font-mono">
-                    Auto-incrément mensuel
+                    Auto-incrément
                   </span>
                 </div>
                 <div className="relative">
@@ -473,7 +462,6 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* BOUTON UNIQUE D'ENREGISTREMENT ET D'IMPRESSION */}
               <div className="md:col-span-2 lg:col-span-1 md:flex md:items-end md:justify-end lg:mt-5">
                 <button
                   type="submit"
@@ -493,8 +481,8 @@ export default function AdminDashboard() {
             </form>
           </div>
 
-          {/* Registre Général */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl flex-1 flex flex-col">
+          {/* Registre Général - CARDS SUR MOBILE / TABLE SUR ECRAN LARGE */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl flex-1 flex flex-col">
             
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-800">
               <div className="flex items-center gap-2">
@@ -531,9 +519,92 @@ export default function AdminDashboard() {
                 {registrySearch ? 'Aucune déclaration ne correspond à votre filtre.' : 'Aucun engin déclaré pour le moment.'}
               </div>
             ) : (
-              <div className="overflow-x-auto -mx-5 sm:-mx-0">
-                <div className="inline-block min-w-full align-middle sm:px-0 px-5">
-                  <table className="w-full text-left text-sm min-w-[950px]">
+              <>
+                {/* 1. VUE MOBILE: LISTE SOUS FORME DE CARTE (CARDS) */}
+                <div className="grid grid-cols-1 gap-4 md:hidden">
+                  {filteredVehicles.map((v) => (
+                    <div key={v.id} className="bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col gap-3 shadow-md">
+                      
+                      {/* Entête Card: Plaque + Statut */}
+                      <div className="flex items-start justify-between gap-2 border-b border-slate-800/80 pb-3">
+                        <div>
+                          <p className="text-[10px] text-slate-500 uppercase font-semibold">Plaque d'immatriculation</p>
+                          <span className="font-mono font-extrabold text-xl text-white tracking-wide">{v.plate_number}</span>
+                        </div>
+                        <div>
+                          {v.status === 'STOLEN' ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-red-500/10 text-red-400 border border-red-500/20">
+                              <span className="relative flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                              </span>
+                              RECHERCHÉ
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              <CheckCircle className="w-3.5 h-3.5" />
+                              RETROUVÉ
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Détails du véhicule */}
+                      <div className="grid grid-cols-2 gap-2 text-xs py-1">
+                        <div className="flex items-center gap-1.5 text-slate-300 col-span-2">
+                          <User className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                          <span className="font-medium text-white">{v.owner_name}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-slate-300 col-span-2">
+                          <Tag className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                          <span>{v.brand} {v.model} <span className="text-slate-500">({v.color || 'N/A'})</span></span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-slate-400">
+                          <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                          <span className="font-mono">{v.stolen_date}</span>
+                        </div>
+                        <div className="flex items-center justify-end">
+                          <span className="font-mono text-[11px] text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
+                            {v.report_number}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Actions Carte Mobile */}
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800/80 mt-1">
+                        <button
+                          onClick={() => triggerPrint(v)}
+                          className="flex-1 py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-semibold border border-slate-800 flex items-center justify-center gap-1.5 transition-colors"
+                        >
+                          <Printer className="w-3.5 h-3.5 text-emerald-400" />
+                          Récépissé
+                        </button>
+
+                        {v.status === 'STOLEN' ? (
+                          <button
+                            onClick={() => handleMarkAsRecovered(v.id, v.plate_number)}
+                            disabled={actionLoading === v.id}
+                            className="flex-1 py-2 px-3 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/30 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
+                          >
+                            {actionLoading === v.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <CheckCircle className="w-3.5 h-3.5" />
+                            )}
+                            Marquer Retrouvé
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-600 font-medium italic text-right flex-1 pr-2">Dossier clos</span>
+                        )}
+                      </div>
+
+                    </div>
+                  ))}
+                </div>
+
+                {/* 2. VUE BUREAU / TABLETTE: TABLEAU TRADITIONNEL */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-left text-sm">
                     <thead className="bg-slate-950 text-slate-400 text-xs uppercase tracking-wider">
                       <tr>
                         <th className="p-4 rounded-l-lg">Statut</th>
@@ -547,7 +618,7 @@ export default function AdminDashboard() {
                     </thead>
                     <tbody className="divide-y divide-slate-800/60">
                       {filteredVehicles.map((v) => (
-                        <tr key={v.id} className="hover:bg-slate-800/40 transition-colors group">
+                        <tr key={v.id} className="hover:bg-slate-800/40 transition-colors">
                           <td className="p-4">
                             {v.status === 'STOLEN' ? (
                               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20">
@@ -573,7 +644,6 @@ export default function AdminDashboard() {
                           
                           <td className="p-4 text-right">
                             <div className="flex items-center justify-end gap-2">
-                              {/* Bouton pour réimprimer si besoin */}
                               <button
                                 onClick={() => triggerPrint(v)}
                                 className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-all"
@@ -587,7 +657,6 @@ export default function AdminDashboard() {
                                   onClick={() => handleMarkAsRecovered(v.id, v.plate_number)}
                                   disabled={actionLoading === v.id}
                                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-emerald-600 text-slate-300 hover:text-white border border-slate-700 transition-all disabled:opacity-50"
-                                  title="Marquer comme retrouvé et clore le signalement"
                                 >
                                   {actionLoading === v.id ? (
                                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -607,7 +676,7 @@ export default function AdminDashboard() {
                     </tbody>
                   </table>
                 </div>
-              </div>
+              </>
             )}
           </div>
 
