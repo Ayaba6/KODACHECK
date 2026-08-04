@@ -2,7 +2,24 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { localDb } from '../lib/db';
 import { syncVehiclesWithLocalDB } from '../lib/syncService';
-import { Search, Camera, CheckCircle, LogOut, Car, ShieldAlert, Wifi, WifiOff, RefreshCw, Bell, X, List, ChevronRight, AlertTriangle } from 'lucide-react';
+import { 
+  Search, 
+  Camera, 
+  CheckCircle, 
+  LogOut, 
+  Car, 
+  ShieldAlert, 
+  Wifi, 
+  WifiOff, 
+  RefreshCw, 
+  Bell, 
+  X, 
+  List, 
+  ChevronRight, 
+  AlertTriangle,
+  UserCheck,
+  Shield
+} from 'lucide-react';
 import CameraScanner from '../components/CameraScanner';
 
 export default function AgentDashboard() {
@@ -157,42 +174,70 @@ export default function AgentDashboard() {
         </div>
       )}
 
-      {/* HEADER RESPONSIVE */}
-      <header className="bg-slate-900 border-b border-slate-800 px-4 py-3 sm:px-6 sticky top-0 z-40">
-        <div className="max-w-4xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <Car className="w-6 h-6 text-blue-500 shrink-0" />
-            <span className="font-bold text-base sm:text-lg tracking-tight">Contrôle Agent</span>
+      {/* HEADER HARMONISÉ ET STYLISÉ COMME L'ADMINISTRATEUR */}
+      <header className="bg-slate-900/95 backdrop-blur-md border-b border-slate-800 px-4 py-3 sm:px-6 sticky top-0 z-40 shadow-md">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+          
+          {/* Logo & Titre */}
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-600/10 border border-blue-500/20 rounded-xl text-blue-500">
+              <Shield className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="font-bold text-base sm:text-lg tracking-tight text-white leading-tight">
+                  Espace Contrôle
+                </h1>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 uppercase tracking-wider">
+                  Agent
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 hidden sm:block">
+                Système de vérification des véhicules signalés
+              </p>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* Tag réseau adaptatif */}
-            <div className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border ${
-              isOnline ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+          {/* Section d'état et actions */}
+          <div className="flex items-center gap-2 sm:gap-4">
+            
+            {/* Indicateur d'état réseau */}
+            <div className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl border transition-all ${
+              isOnline 
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' 
+                : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
             }`}>
               {isOnline ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
               <span className="hidden sm:inline">{isOnline ? 'En ligne' : 'Hors ligne'}</span>
             </div>
 
+            {/* Bouton de Synchronisation */}
             {isOnline && (
               <button
                 onClick={handleSync}
                 disabled={isSyncing}
-                className="p-2 bg-slate-800 text-slate-300 hover:text-white rounded-lg border border-slate-700 transition-colors"
+                className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium rounded-xl border border-slate-700 transition-colors disabled:opacity-50"
                 title="Synchroniser la base locale"
               >
-                <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-blue-400' : ''}`} />
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-400' : ''}`} />
+                <span className="hidden md:inline">Synchroniser</span>
               </button>
             )}
 
+            {/* Séparateur vertical */}
+            <div className="h-6 w-[1px] bg-slate-800 hidden sm:block" />
+
+            {/* Bouton de Déconnexion */}
             <button 
               onClick={() => supabase.auth.signOut()}
-              className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 bg-slate-800/80 hover:bg-red-500/10 text-slate-400 hover:text-red-400 rounded-xl border border-slate-700/80 hover:border-red-500/30 transition-all text-xs font-medium"
               title="Déconnexion"
             >
-              <LogOut className="w-5 h-5" />
+              <LogOut className="w-4 h-4" />
+              <span className="hidden sm:inline">Déconnexion</span>
             </button>
           </div>
+
         </div>
       </header>
 
