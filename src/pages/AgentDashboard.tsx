@@ -7,7 +7,6 @@ import {
   Camera, 
   CheckCircle, 
   LogOut, 
-  Car, 
   ShieldAlert, 
   Wifi, 
   WifiOff, 
@@ -17,8 +16,8 @@ import {
   List, 
   ChevronRight, 
   AlertTriangle,
-  UserCheck,
-  Shield
+  Shield,
+  User
 } from 'lucide-react';
 import CameraScanner from '../components/CameraScanner';
 
@@ -50,6 +49,7 @@ export default function AgentDashboard() {
 
     loadRecentStolen('');
 
+    // Écoute des nouveaux signalements en temps réel
     const channel = supabase
       .channel('realtime_stolen_vehicles')
       .on(
@@ -87,45 +87,53 @@ export default function AgentDashboard() {
     setSelectedVehicle(null);
     const cleanQuery = query.trim().toUpperCase();
 
-    if (navigator.onLine) {
-      let req = supabase
-        .from('stolen_vehicles')
-        .select('*')
-        .eq('status', 'STOLEN')
-        .order('created_at', { ascending: false });
+    try {
+      if (navigator.onLine) {
+        let req = supabase
+          .from('stolen_vehicles')
+          .select('*')
+          .eq('status', 'STOLEN')
+          .order('created_at', { ascending: false });
 
-      if (cleanQuery) {
-        req = req.or(`plate_number.ilike.%${cleanQuery}%,vin.ilike.%${cleanQuery}%,owner_name.ilike.%${cleanQuery}%`);
-      }
+        if (cleanQuery) {
+          req = req.or(`plate_number.ilike.%${cleanQuery}%,vin.ilike.%${cleanQuery}%,owner_name.ilike.%${cleanQuery}%`);
+        }
 
-      const { data } = await req.limit(20);
-      setRecentStolen(data || []);
-    } else {
-      let collection = localDb.stolen_vehicles.reverse();
-
-      if (cleanQuery) {
-        const filtered = await collection
-          .filter(v => 
-            (v.plate_number && v.plate_number.toUpperCase().includes(cleanQuery)) ||
-            (v.vin && v.vin.toUpperCase().includes(cleanQuery)) ||
-            (v.owner_name && v.owner_name.toUpperCase().includes(cleanQuery))
-          )
-          .limit(20)
-          .toArray();
-        setRecentStolen(filtered);
+        const { data, error } = await req.limit(20);
+        if (!error && data) {
+          setRecentStolen(data);
+        }
       } else {
-        const allLocal = await collection.limit(20).toArray();
-        setRecentStolen(allLocal);
+        let collection = localDb.stolen_vehicles.reverse();
+
+        if (cleanQuery) {
+          const filtered = await collection
+            .filter(v => 
+              (v.plate_number && v.plate_number.toUpperCase().includes(cleanQuery)) ||
+              (v.vin && v.vin.toUpperCase().includes(cleanQuery)) ||
+              (v.owner_name && v.owner_name.toUpperCase().includes(cleanQuery))
+            )
+            .limit(20)
+            .toArray();
+          setRecentStolen(filtered);
+        } else {
+          const allLocal = await collection.limit(20).toArray();
+          setRecentStolen(allLocal);
+        }
       }
+    } catch (err) {
+      console.error("Erreur de chargement des données :", err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleSync = async () => {
     setIsSyncing(true);
     const success = await syncVehiclesWithLocalDB();
     if (success) {
-      setLastSync(localStorage.getItem('last_sync_time'));
+      const updatedTime = localStorage.getItem('last_sync_time');
+      setLastSync(updatedTime || new Date().toLocaleString());
       loadRecentStolen(searchTerm);
     }
     setIsSyncing(false);
@@ -143,7 +151,7 @@ export default function AgentDashboard() {
       {realtimeAlert && (
         <div className="bg-red-600 text-white p-3 sm:p-4 shadow-2xl border-b border-red-500 animate-bounce flex items-center justify-between z-50">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            <Bell className="w-5 h-5 sm:w-6 sm:h-6 shrink-0 animate-spin" />
+            <Bell className="w-5 h-5 sm:w-6 sm:h-6 shrink-0 animate-pulse" />
             <div className="truncate">
               <p className="font-extrabold text-xs sm:text-sm uppercase tracking-wide truncate">
                 NOUVEAU SIGNALEMENT DE VOL !
@@ -160,13 +168,13 @@ export default function AgentDashboard() {
                 setSelectedVehicle(realtimeAlert);
                 setRealtimeAlert(null);
               }}
-              className="bg-white text-red-600 font-bold text-xs px-2.5 py-1.5 sm:px-3 rounded-lg shadow hover:bg-red-50"
+              className="bg-white text-red-600 font-bold text-xs px-2.5 py-1.5 sm:px-3 rounded-lg shadow hover:bg-red-50 transition-colors"
             >
               Voir
             </button>
             <button 
               onClick={() => setRealtimeAlert(null)}
-              className="text-red-200 hover:text-white p-1"
+              className="text-red-200 hover:text-white p-1 transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
@@ -174,7 +182,7 @@ export default function AgentDashboard() {
         </div>
       )}
 
-      {/* HEADER HARMONISÉ ET STYLISÉ COMME L'ADMINISTRATEUR */}
+      {/* HEADER EN HARMONIE AVEC L'ADMIN DASHBOARD */}
       <header className="bg-slate-900/95 backdrop-blur-md border-b border-slate-800 px-4 py-3 sm:px-6 sticky top-0 z-40 shadow-md">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
           
@@ -198,7 +206,7 @@ export default function AgentDashboard() {
             </div>
           </div>
 
-          {/* Section d'état et actions */}
+          {/* Statut Réseau & Actions */}
           <div className="flex items-center gap-2 sm:gap-4">
             
             {/* Indicateur d'état réseau */}
@@ -211,7 +219,7 @@ export default function AgentDashboard() {
               <span className="hidden sm:inline">{isOnline ? 'En ligne' : 'Hors ligne'}</span>
             </div>
 
-            {/* Bouton de Synchronisation */}
+            {/* Bouton Synchronisation */}
             {isOnline && (
               <button
                 onClick={handleSync}
@@ -224,10 +232,9 @@ export default function AgentDashboard() {
               </button>
             )}
 
-            {/* Séparateur vertical */}
             <div className="h-6 w-[1px] bg-slate-800 hidden sm:block" />
 
-            {/* Bouton de Déconnexion */}
+            {/* Bouton Déconnexion */}
             <button 
               onClick={() => supabase.auth.signOut()}
               className="flex items-center gap-2 px-3 py-1.5 bg-slate-800/80 hover:bg-red-500/10 text-slate-400 hover:text-red-400 rounded-xl border border-slate-700/80 hover:border-red-500/30 transition-all text-xs font-medium"
@@ -241,21 +248,20 @@ export default function AgentDashboard() {
         </div>
       </header>
 
-      {/* BARRE STATUT SYNCHRO */}
+      {/* BARRE DE STATUT LOGISTIQUE / SYNCHRO */}
       <div className="bg-slate-900/50 border-b border-slate-800/60 px-4 py-1.5 text-center text-xs text-slate-400">
         Dernière mise à jour locale : <span className="text-slate-200 font-mono">{lastSync}</span>
       </div>
 
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 flex flex-col">
         
-        {/* BARRE DE RECHERCHE RESPONSIVE */}
+        {/* RECHERCHE */}
         <form onSubmit={handleSearchSubmit} className="mb-6">
           <label className="block text-xs sm:text-sm font-medium mb-2 text-slate-300">
-            Recherche par Immatriculation, VIN ou Nom
+            Recherche par Immatriculation, VIN ou Nom du propriétaire
           </label>
           <div className="flex flex-col sm:flex-row gap-2">
             
-            {/* Champ texte */}
             <div className="relative flex-1">
               <Search className="w-5 h-5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
@@ -265,8 +271,8 @@ export default function AgentDashboard() {
                   setSearchTerm(e.target.value);
                   loadRecentStolen(e.target.value);
                 }}
-                placeholder="Ex: 11-JJ-4567..."
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-8 text-white font-mono text-base uppercase focus:outline-none focus:border-blue-500"
+                placeholder="Ex: 11-JJ-4567 ou VIN..."
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-8 text-white font-mono text-base uppercase focus:outline-none focus:border-blue-500 transition-colors"
               />
               {searchTerm && (
                 <button 
@@ -279,7 +285,6 @@ export default function AgentDashboard() {
               )}
             </div>
 
-            {/* Boutons d'actions (Caméra + Rechercher) */}
             <div className="flex gap-2">
               <button
                 type="button"
@@ -315,12 +320,12 @@ export default function AgentDashboard() {
           />
         )}
 
-        {/* FICHE DÉTAIL ENGIN SÉLECTIONNÉ */}
+        {/* CARTE D'ALERTES / FICHE DÉTAIL ENGIN SÉLECTIONNÉ */}
         {selectedVehicle && (
-          <div className="mb-6 bg-red-950/50 border-2 border-red-600 rounded-2xl p-4 sm:p-5 relative shadow-2xl animate-fadeIn">
+          <div className="mb-6 bg-red-950/40 border-2 border-red-600/80 rounded-2xl p-4 sm:p-5 relative shadow-2xl transition-all">
             <button 
               onClick={() => setSelectedVehicle(null)}
-              className="absolute top-3 right-3 text-red-400 hover:text-white p-1"
+              className="absolute top-3 right-3 text-red-400 hover:text-white p-1 transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
@@ -328,8 +333,8 @@ export default function AgentDashboard() {
             <div className="flex items-center gap-3 text-red-500 mb-4">
               <ShieldAlert className="w-7 h-7 sm:w-8 sm:h-8 shrink-0" />
               <div>
-                <h2 className="text-base sm:text-lg font-extrabold uppercase">Signalé Volé !</h2>
-                <p className="text-xs text-red-400">PV N° : {selectedVehicle.report_number}</p>
+                <h2 className="text-base sm:text-lg font-extrabold uppercase tracking-wide">Véhicule Signalé Volé !</h2>
+                <p className="text-xs text-red-400 font-mono">Procès-Verbal N° : {selectedVehicle.report_number || 'N/A'}</p>
               </div>
             </div>
 
@@ -349,7 +354,7 @@ export default function AgentDashboard() {
                 </div>
               )}
               <div>
-                <span className="text-red-400 text-xs block">Engin</span>
+                <span className="text-red-400 text-xs block">Engin / Modèle</span>
                 <span className="text-white">{selectedVehicle.brand} {selectedVehicle.model}</span>
               </div>
               <div>
@@ -405,8 +410,9 @@ export default function AgentDashboard() {
                       <p className="text-xs text-slate-400 truncate">
                         {vehicle.brand} {vehicle.model}
                       </p>
-                      <p className="text-xs text-slate-500 truncate">
-                        Prop. : <span className="text-slate-300">{vehicle.owner_name || 'Inconnu'}</span>
+                      <p className="text-xs text-slate-500 truncate flex items-center gap-1 mt-0.5">
+                        <User className="w-3 h-3 text-slate-400" />
+                        <span className="text-slate-300">{vehicle.owner_name || 'Inconnu'}</span>
                       </p>
                     </div>
                   </div>
