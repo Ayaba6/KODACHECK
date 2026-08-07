@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
-import { Shield, PlusCircle, LogOut, AlertCircle, List, CheckCircle, PackageCheck, Truck, Loader2, Search, X, Printer, Lock, Calendar, User, Tag } from 'lucide-react';
+import { 
+  Shield, PlusCircle, LogOut, AlertCircle, List, CheckCircle, 
+  PackageCheck, Truck, Loader2, Search, X, Printer, Lock, 
+  Calendar, User, Tag, Sun, Moon 
+} from 'lucide-react';
 
-// Listes de données prédéfinies pour les menus déroulants
-const MARQUES_ET_MODELES = {
+// Listes de données prédéfinies
+const MARQUES_ET_MODELES: Record<string, string[]> = {
   "Yamaha": ["Sirius", "Spark", "Crypton", "Force X", "RayZR", "125", "DT", "YZF-R", "Autre / Non spécifié"],
   "KTM": ["Duke 125", "Duke 200", "Duke 390", "RC 200", "EXC", "Autre / Non spécifié"],
   "TVS": ["HLX 125", "HLX 150", "Apache RTR", "Star HLX", "Neo NX", "Autre / Non spécifié"],
@@ -21,30 +25,24 @@ const MARQUES_ET_MODELES = {
 };
 
 const COULEURS = [
-  "Noir",
-  "Rouge",
-  "Bleu",
-  "Blanc",
-  "Gris / Argent",
-  "Vert",
-  "Jaune",
-  "Marron / Bronze",
-  "Orange",
-  "Violet / Rose",
-  "Autre / Bicolore"
+  "Noir", "Rouge", "Bleu", "Blanc", "Gris / Argent", 
+  "Vert", "Jaune", "Marron / Bronze", "Orange", "Violet / Rose", "Autre / Bicolore"
 ];
 
-export default function AdminDashboard() {
-  const [vehicles, setVehicles] = useState([]);
+export default function AgentbureauDashboard() {
+  const [vehicles, setVehicles] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [actionLoading, setActionLoading] = useState(null);
-  const [message, setMessage] = useState(null);
+  const [actionLoading, setActionLoading] = useState<string | number | null>(null);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // État du mode sombre / clair (par défaut sombre)
+  const [isDarkMode, setIsDarkMode] = useState(true);
 
   // Recherche dans le registre général
   const [registrySearch, setRegistrySearch] = useState('');
 
   // Objet stockant les données du véhicule à imprimer
-  const [printableVehicle, setPrintableVehicle] = useState(null);
+  const [printableVehicle, setPrintableVehicle] = useState<any | null>(null);
 
   // Champs du formulaire d'ajout
   const [plateNumber, setPlateNumber] = useState('');
@@ -62,13 +60,13 @@ export default function AdminDashboard() {
   }, []);
 
   // Réinitialiser le modèle quand la marque change
-  const handleBrandChange = (e) => {
+  const handleBrandChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedBrand = e.target.value;
     setBrand(selectedBrand);
     setModel('');
   };
 
-  // Génération automatique du numéro de PV selon le mois (ex: PV-202608-0001)
+  // Génération automatique du numéro de PV selon le mois
   const generateNextReportNumber = async () => {
     const now = new Date();
     const year = now.getFullYear();
@@ -84,7 +82,6 @@ export default function AdminDashboard() {
         .limit(100);
 
       if (error) {
-        console.error("Erreur lors de la génération du PV:", error);
         setReportNumber(`${prefix}0001`);
         return;
       }
@@ -106,7 +103,6 @@ export default function AdminDashboard() {
       const nextSeq = String(maxSeq + 1).padStart(4, '0');
       setReportNumber(`${prefix}${nextSeq}`);
     } catch (e) {
-      console.error(e);
       setReportNumber(`${prefix}0001`);
     }
   };
@@ -122,27 +118,18 @@ export default function AdminDashboard() {
     }
   };
 
-  // Fonction pour déclencher l'impression
-  const triggerPrint = (vehicleData) => {
+  const triggerPrint = (vehicleData: any) => {
     setPrintableVehicle(vehicleData);
     setTimeout(() => {
       window.print();
     }, 300);
   };
 
-  // Enregistrement unique qui déclenche ensuite l'impression
-  const handleSaveAndPrint = async (e) => {
+  const handleSaveAndPrint = async (e: React.FormEvent) => {
     if (e) e.preventDefault();
     setMessage(null);
 
-    if (
-      !ownerName.trim() ||
-      !plateNumber.trim() ||
-      !brand ||
-      !model ||
-      !stolenDate ||
-      !reportNumber.trim()
-    ) {
+    if (!ownerName.trim() || !plateNumber.trim() || !brand || !model || !stolenDate || !reportNumber.trim()) {
       setMessage({
         type: 'error',
         text: 'Veuillez remplir tous les champs obligatoires (*) avant d\'enregistrer.'
@@ -193,9 +180,8 @@ export default function AdminDashboard() {
     setLoading(false);
   };
 
-  const handleMarkAsRecovered = async (vehicleId, plate) => {
-    const confirmRecovery = window.confirm(`Voulez-vous vraiment marquer le véhicule plaque ${plate} comme retrouvé ? Il ne sera plus signalé aux agents.`);
-    
+  const handleMarkAsRecovered = async (vehicleId: string | number, plate: string) => {
+    const confirmRecovery = window.confirm(`Voulez-vous vraiment marquer le véhicule plaque ${plate} comme retrouvé ?`);
     if (!confirmRecovery) return;
 
     setActionLoading(vehicleId);
@@ -208,12 +194,9 @@ export default function AdminDashboard() {
       .select();
 
     if (error) {
-      setMessage({ type: 'error', text: `Erreur lors de la mise à jour : ${error.message}` });
+      setMessage({ type: 'error', text: `Erreur : ${error.message}` });
     } else if (!data || data.length === 0) {
-      setMessage({ 
-        type: 'error', 
-        text: "Mise à jour bloquée. Vérifiez la règle RLS UPDATE dans Supabase." 
-      });
+      setMessage({ type: 'error', text: "Mise à jour bloquée. Vérifiez vos règles RLS." });
     } else {
       setMessage({ type: 'success', text: `Le véhicule plaque ${plate} a été marqué comme retrouvé.` });
       fetchStolenVehicles();
@@ -236,8 +219,11 @@ export default function AdminDashboard() {
   }, [vehicles, registrySearch]);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      {/* IMPRESSION */}
+    <div className={`min-h-screen flex flex-col transition-colors duration-200 ${
+      isDarkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
+    }`}>
+      
+      {/* SECTION IMPRESSION (Toujours en Noir & Blanc sur papier) */}
       {printableVehicle && (
         <div className="hidden print:block print:fixed print:inset-0 print:bg-white print:text-black print:p-8 print:z-[9999]">
           <div className="max-w-2xl mx-auto border-4 border-slate-900 p-8 rounded-lg relative">
@@ -293,7 +279,6 @@ export default function AdminDashboard() {
 
             <div className="border border-dashed border-slate-400 p-3 rounded text-xs text-slate-600 mb-8 bg-slate-50">
               Ce document atteste que l'engin désigné ci-dessus a été inscrit dans la base de données active de <strong>KODACHECK</strong>.
-              Toutes les forces de l'ordre et agents de contrôle réseau sont informés et habilités à intercepter ce véhicule.
             </div>
 
             <div className="flex justify-between items-end mt-12 pt-4">
@@ -311,33 +296,64 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* DASHBOARD PRINCIPAL */}
+      {/* INTERFACE UTILISATEUR PRINCIPALE */}
       <div className="print:hidden flex flex-col flex-1">
-        <header className="bg-slate-900 border-b border-slate-800 p-4 sticky top-0 z-40">
-          <div className="max-w-7xl mx-auto flex justify-between items-center gap-4">
+        
+        {/* EN-TÊTE DE NAVIGATION */}
+        <header className={`border-b sticky top-0 z-40 transition-colors ${
+          isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'
+        }`}>
+          <div className="max-w-7xl mx-auto p-4 flex justify-between items-center gap-4">
             <div className="flex items-center gap-2">
-              <Shield className="w-7 h-7 text-blue-500 shrink-0" />
+              <Shield className="w-7 h-7 text-blue-600 shrink-0" />
               <div className="flex flex-col">
-                <span className="font-extrabold text-lg tracking-wider text-blue-400">KODACHECK</span>
-                <span className="text-[10px] uppercase text-slate-400 font-semibold tracking-widest -mt-1">Espace Admin</span>
+                <span className="font-extrabold text-lg tracking-wider text-blue-600">KODACHECK</span>
+                <span className={`text-[10px] uppercase font-semibold tracking-widest -mt-1 ${
+                  isDarkMode ? 'text-slate-400' : 'text-slate-500'
+                }`}>
+                  Espace Admin
+                </span>
               </div>
             </div>
-            <button 
-              onClick={() => supabase.auth.signOut()}
-              className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-2 text-sm shrink-0"
-            >
-              <LogOut className="w-4 h-4" />
-              <span className="hidden sm:inline">Déconnexion</span>
-            </button>
+
+            <div className="flex items-center gap-3">
+              {/* BOUTON SWITCH MODE SOMBRE / LIGHT */}
+              <button
+                onClick={() => setIsDarkMode(!isDarkMode)}
+                className={`p-2 rounded-lg border transition-colors flex items-center gap-2 text-xs font-medium ${
+                  isDarkMode 
+                    ? 'bg-slate-800 border-slate-700 text-yellow-400 hover:bg-slate-700' 
+                    : 'bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200'
+                }`}
+                title={isDarkMode ? "Passer au mode clair" : "Passer au mode sombre"}
+              >
+                {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                <span className="hidden md:inline">{isDarkMode ? 'Mode Clair' : 'Mode Sombre'}</span>
+              </button>
+
+              <button 
+                onClick={() => supabase.auth.signOut()}
+                className={`p-2 rounded-lg border transition-colors flex items-center gap-2 text-sm shrink-0 ${
+                  isDarkMode 
+                    ? 'border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800' 
+                    : 'border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                <LogOut className="w-4 h-4" />
+                <span className="hidden sm:inline">Déconnexion</span>
+              </button>
+            </div>
           </div>
         </header>
 
         <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 lg:p-8 flex flex-col gap-8">
           
-          {/* Messages de Notification */}
+          {/* MESSAGES DE NOTIFICATION */}
           {message && (
-            <div className={`p-4 rounded-xl flex items-start gap-3 text-sm animate-fadeIn ${
-              message.type === 'success' ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'
+            <div className={`p-4 rounded-xl flex items-start gap-3 text-sm animate-fadeIn border ${
+              message.type === 'success' 
+                ? (isDarkMode ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-emerald-50 border-emerald-300 text-emerald-800') 
+                : (isDarkMode ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-red-50 border-red-300 text-red-800')
             }`}>
               {message.type === 'success' ? <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" /> : <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />}
               <div>
@@ -347,53 +363,73 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* Formulaire d'ajout */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl">
-            <div className="flex items-center gap-2 mb-6 pb-3 border-b border-slate-800">
-              <PlusCircle className="w-5 h-5 text-blue-500" />
+          {/* FORMULAIRE D'AJOUT */}
+          <div className={`border rounded-2xl p-5 sm:p-6 shadow-xl transition-colors ${
+            isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+          }`}>
+            <div className={`flex items-center gap-2 mb-6 pb-3 border-b ${
+              isDarkMode ? 'border-slate-800' : 'border-slate-200'
+            }`}>
+              <PlusCircle className="w-5 h-5 text-blue-600" />
               <h2 className="font-bold text-lg">Déclarer un nouvel engin volé</h2>
             </div>
 
             <form onSubmit={handleSaveAndPrint} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4">
               <div className="lg:col-span-2">
-                <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">Nom & Prénom du Propriétaire *</label>
+                <label className={`block text-xs font-semibold uppercase mb-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                  Nom & Prénom du Propriétaire *
+                </label>
                 <input
                   type="text" required value={ownerName}
                   onChange={(e) => setOwnerName(e.target.value)}
                   placeholder="Ex: Sawadogo Ousmane"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-blue-500"
+                  className={`w-full border rounded-lg p-3 text-sm focus:outline-none focus:border-blue-500 transition-colors ${
+                    isDarkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">Plaque d'immatriculation *</label>
+                <label className={`block text-xs font-semibold uppercase mb-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                  Plaque d'immatriculation *
+                </label>
                 <input
                   type="text" required value={plateNumber}
                   onChange={(e) => setPlateNumber(e.target.value)}
                   placeholder="Ex: 11-JJ-4567"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white font-mono uppercase focus:outline-none focus:border-blue-500"
+                  className={`w-full border rounded-lg p-3 text-sm font-mono uppercase focus:outline-none focus:border-blue-500 transition-colors ${
+                    isDarkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">N° Châssis (VIN)</label>
+                <label className={`block text-xs font-semibold uppercase mb-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                  N° Châssis (VIN)
+                </label>
                 <input
                   type="text" value={vin}
                   onChange={(e) => setVin(e.target.value)}
                   placeholder="Ex: VF3123..."
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white font-mono uppercase focus:outline-none focus:border-blue-500"
+                  className={`w-full border rounded-lg p-3 text-sm font-mono uppercase focus:outline-none focus:border-blue-500 transition-colors ${
+                    isDarkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
                 />
               </div>
 
-              {/* LISTES DÉROULANTES MARQUE ET MODÈLE */}
+              {/* MARQUE & MODÈLE */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">Marque *</label>
+                  <label className={`block text-xs font-semibold uppercase mb-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                    Marque *
+                  </label>
                   <select
                     required
                     value={brand}
                     onChange={handleBrandChange}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-blue-500"
+                    className={`w-full border rounded-lg p-3 text-sm focus:outline-none focus:border-blue-500 transition-colors ${
+                      isDarkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    }`}
                   >
                     <option value="">Sélectionner...</option>
                     {Object.keys(MARQUES_ET_MODELES).map((b) => (
@@ -402,13 +438,17 @@ export default function AdminDashboard() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">Modèle *</label>
+                  <label className={`block text-xs font-semibold uppercase mb-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                    Modèle *
+                  </label>
                   <select
                     required
                     disabled={!brand}
                     value={model}
                     onChange={(e) => setModel(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-blue-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className={`w-full border rounded-lg p-3 text-sm focus:outline-none focus:border-blue-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                      isDarkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    }`}
                   >
                     <option value="">{brand ? "Sélectionner..." : "Choisir marque d'abord"}</option>
                     {brand && MARQUES_ET_MODELES[brand]?.map((m) => (
@@ -418,14 +458,18 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* LISTE DÉROULANTE COULEUR ET DATE */}
+              {/* COULEUR & DATE */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">Couleur</label>
+                  <label className={`block text-xs font-semibold uppercase mb-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                    Couleur
+                  </label>
                   <select
                     value={color}
                     onChange={(e) => setColor(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-blue-500"
+                    className={`w-full border rounded-lg p-3 text-sm focus:outline-none focus:border-blue-500 transition-colors ${
+                      isDarkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    }`}
                   >
                     <option value="">Sélectionner...</option>
                     {COULEURS.map((c) => (
@@ -434,11 +478,15 @@ export default function AdminDashboard() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">Date du vol *</label>
+                  <label className={`block text-xs font-semibold uppercase mb-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                    Date du vol *
+                  </label>
                   <input
                     type="date" required value={stolenDate}
                     onChange={(e) => setStolenDate(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-blue-500"
+                    className={`w-full border rounded-lg p-3 text-sm focus:outline-none focus:border-blue-500 transition-colors ${
+                      isDarkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    }`}
                   />
                 </div>
               </div>
@@ -446,8 +494,10 @@ export default function AdminDashboard() {
               {/* PV AUTO-GÉNÉRÉ */}
               <div className="lg:col-span-2">
                 <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-semibold uppercase text-slate-400">N° de PV / Déclaration</label>
-                  <span className="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded font-mono">
+                  <label className={`block text-xs font-semibold uppercase ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                    N° de PV / Déclaration
+                  </label>
+                  <span className="text-[10px] bg-blue-500/10 text-blue-600 border border-blue-500/20 px-2 py-0.5 rounded font-mono">
                     Auto-incrément
                   </span>
                 </div>
@@ -456,9 +506,11 @@ export default function AdminDashboard() {
                     type="text"
                     readOnly
                     value={reportNumber || 'Génération...'}
-                    className="w-full bg-slate-950/60 border border-slate-800 rounded-lg p-3 text-blue-400 font-mono font-bold cursor-not-allowed pr-10 focus:outline-none"
+                    className={`w-full border rounded-lg p-3 text-sm text-blue-600 font-mono font-bold cursor-not-allowed pr-10 focus:outline-none ${
+                      isDarkMode ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-100 border-slate-300'
+                    }`}
                   />
-                  <Lock className="w-4 h-4 text-slate-500 absolute right-3 top-1/2 -translate-y-1/2" />
+                  <Lock className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
                 </div>
               </div>
 
@@ -481,31 +533,39 @@ export default function AdminDashboard() {
             </form>
           </div>
 
-          {/* Registre Général - CARDS SUR MOBILE / TABLE SUR ECRAN LARGE */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl flex-1 flex flex-col">
+          {/* REGISTRE GÉNÉRAL */}
+          <div className={`border rounded-2xl p-4 sm:p-6 shadow-xl flex-1 flex flex-col transition-colors ${
+            isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+          }`}>
             
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-800">
+            <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b ${
+              isDarkMode ? 'border-slate-800' : 'border-slate-200'
+            }`}>
               <div className="flex items-center gap-2">
-                <List className="w-5 h-5 text-blue-500" />
+                <List className="w-5 h-5 text-blue-600" />
                 <h2 className="font-bold text-lg">Registre Général KODACHECK</h2>
-                <span className="text-xs font-mono bg-slate-800 text-slate-300 px-2.5 py-1 rounded-full border border-slate-700">
+                <span className={`text-xs font-mono px-2.5 py-1 rounded-full border ${
+                  isDarkMode ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-100 text-slate-700 border-slate-300'
+                }`}>
                   {filteredVehicles.length} {registrySearch ? `/ ${vehicles.length}` : ''} engins
                 </span>
               </div>
 
               <div className="relative w-full sm:w-72">
-                <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   value={registrySearch}
                   onChange={(e) => setRegistrySearch(e.target.value)}
                   placeholder="Filtrer le registre..."
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2 pl-9 pr-8 text-sm text-white focus:outline-none focus:border-blue-500"
+                  className={`w-full border rounded-xl py-2 pl-9 pr-8 text-sm focus:outline-none focus:border-blue-500 transition-colors ${
+                    isDarkMode ? 'bg-slate-950 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
                 />
                 {registrySearch && (
                   <button
                     onClick={() => setRegistrySearch('')}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -514,26 +574,29 @@ export default function AdminDashboard() {
             </div>
 
             {filteredVehicles.length === 0 ? (
-              <div className="text-center py-12 text-slate-500 flex-1 flex flex-col items-center justify-center gap-3">
+              <div className="text-center py-12 text-slate-400 flex-1 flex flex-col items-center justify-center gap-3">
                 <Truck className="w-12 h-12 opacity-30" />
                 {registrySearch ? 'Aucune déclaration ne correspond à votre filtre.' : 'Aucun engin déclaré pour le moment.'}
               </div>
             ) : (
               <>
-                {/* 1. VUE MOBILE: LISTE SOUS FORME DE CARTE (CARDS) */}
+                {/* 1. CARDS EN MOBILE */}
                 <div className="grid grid-cols-1 gap-4 md:hidden">
                   {filteredVehicles.map((v) => (
-                    <div key={v.id} className="bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col gap-3 shadow-md">
+                    <div key={v.id} className={`border rounded-xl p-4 flex flex-col gap-3 shadow-sm transition-colors ${
+                      isDarkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    }`}>
                       
-                      {/* Entête Card: Plaque + Statut */}
-                      <div className="flex items-start justify-between gap-2 border-b border-slate-800/80 pb-3">
+                      <div className={`flex items-start justify-between gap-2 border-b pb-3 ${
+                        isDarkMode ? 'border-slate-800' : 'border-slate-200'
+                      }`}>
                         <div>
-                          <p className="text-[10px] text-slate-500 uppercase font-semibold">Plaque d'immatriculation</p>
-                          <span className="font-mono font-extrabold text-xl text-white tracking-wide">{v.plate_number}</span>
+                          <p className={`text-[10px] uppercase font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Plaque d'immatriculation</p>
+                          <span className="font-mono font-extrabold text-xl tracking-wide">{v.plate_number}</span>
                         </div>
                         <div>
                           {v.status === 'STOLEN' ? (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-red-500/10 text-red-400 border border-red-500/20">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-red-500/10 text-red-500 border border-red-500/20">
                               <span className="relative flex h-2 w-2">
                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
                                 <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
@@ -541,7 +604,7 @@ export default function AdminDashboard() {
                               RECHERCHÉ
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
                               <CheckCircle className="w-3.5 h-3.5" />
                               RETROUVÉ
                             </span>
@@ -549,34 +612,38 @@ export default function AdminDashboard() {
                         </div>
                       </div>
 
-                      {/* Détails du véhicule */}
                       <div className="grid grid-cols-2 gap-2 text-xs py-1">
-                        <div className="flex items-center gap-1.5 text-slate-300 col-span-2">
-                          <User className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                          <span className="font-medium text-white">{v.owner_name}</span>
+                        <div className="flex items-center gap-1.5 col-span-2">
+                          <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span className="font-medium">{v.owner_name}</span>
                         </div>
-                        <div className="flex items-center gap-1.5 text-slate-300 col-span-2">
-                          <Tag className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                          <span>{v.brand} {v.model} <span className="text-slate-500">({v.color || 'N/A'})</span></span>
+                        <div className="flex items-center gap-1.5 col-span-2">
+                          <Tag className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span>{v.brand} {v.model} <span className="text-slate-400">({v.color || 'N/A'})</span></span>
                         </div>
                         <div className="flex items-center gap-1.5 text-slate-400">
-                          <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                          <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                           <span className="font-mono">{v.stolen_date}</span>
                         </div>
                         <div className="flex items-center justify-end">
-                          <span className="font-mono text-[11px] text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
+                          <span className="font-mono text-[11px] text-blue-600 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
                             {v.report_number}
                           </span>
                         </div>
                       </div>
 
-                      {/* Actions Carte Mobile */}
-                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800/80 mt-1">
+                      <div className={`flex items-center justify-between gap-2 pt-2 border-t mt-1 ${
+                        isDarkMode ? 'border-slate-800' : 'border-slate-200'
+                      }`}>
                         <button
                           onClick={() => triggerPrint(v)}
-                          className="flex-1 py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-semibold border border-slate-800 flex items-center justify-center gap-1.5 transition-colors"
+                          className={`flex-1 py-2 px-3 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+                            isDarkMode 
+                              ? 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800' 
+                              : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                          }`}
                         >
-                          <Printer className="w-3.5 h-3.5 text-emerald-400" />
+                          <Printer className="w-3.5 h-3.5 text-emerald-600" />
                           Récépissé
                         </button>
 
@@ -584,7 +651,7 @@ export default function AdminDashboard() {
                           <button
                             onClick={() => handleMarkAsRecovered(v.id, v.plate_number)}
                             disabled={actionLoading === v.id}
-                            className="flex-1 py-2 px-3 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/30 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
+                            className="flex-1 py-2 px-3 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 text-emerald-600 hover:text-white border border-emerald-500/30 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
                           >
                             {actionLoading === v.id ? (
                               <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -594,7 +661,7 @@ export default function AdminDashboard() {
                             Marquer Retrouvé
                           </button>
                         ) : (
-                          <span className="text-xs text-slate-600 font-medium italic text-right flex-1 pr-2">Dossier clos</span>
+                          <span className="text-xs text-slate-400 font-medium italic text-right flex-1 pr-2">Dossier clos</span>
                         )}
                       </div>
 
@@ -602,10 +669,12 @@ export default function AdminDashboard() {
                   ))}
                 </div>
 
-                {/* 2. VUE BUREAU / TABLETTE: TABLEAU TRADITIONNEL */}
+                {/* 2. TABLEAU BUREAU / TABLETTE */}
                 <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-950 text-slate-400 text-xs uppercase tracking-wider">
+                    <thead className={`text-xs uppercase tracking-wider ${
+                      isDarkMode ? 'bg-slate-950 text-slate-400' : 'bg-slate-100 text-slate-600'
+                    }`}>
                       <tr>
                         <th className="p-4 rounded-l-lg">Statut</th>
                         <th className="p-4">Immatriculation</th>
@@ -616,12 +685,14 @@ export default function AdminDashboard() {
                         <th className="p-4 rounded-r-lg text-right">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800/60">
+                    <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800/60' : 'divide-slate-200'}`}>
                       {filteredVehicles.map((v) => (
-                        <tr key={v.id} className="hover:bg-slate-800/40 transition-colors">
+                        <tr key={v.id} className={`transition-colors ${
+                          isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
+                        }`}>
                           <td className="p-4">
                             {v.status === 'STOLEN' ? (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-500 border border-red-500/20">
                                 <span className="relative flex h-2 w-2">
                                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
                                   <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
@@ -629,45 +700,48 @@ export default function AdminDashboard() {
                                 RECHERCHÉ
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
                                 <CheckCircle className="w-3.5 h-3.5" />
                                 RETROUVÉ
                               </span>
                             )}
                           </td>
                           
-                          <td className="p-4 font-mono font-bold text-slate-100 text-base">{v.plate_number}</td>
-                          <td className="p-4 font-medium text-slate-200">{v.owner_name}</td>
-                          <td className="p-4 text-slate-300">{v.brand} {v.model} ({v.color || 'N/A'})</td>
-                          <td className="p-4 text-slate-400 font-mono text-xs">{v.stolen_date}</td>
-                          <td className="p-4 font-mono text-xs text-blue-400 bg-blue-500/5 px-2 py-1 rounded-md">{v.report_number}</td>
+                          <td className="p-4 font-mono font-bold text-base">{v.plate_number}</td>
+                          <td className="p-4 font-medium">{v.owner_name}</td>
+                          <td className="p-4">{v.brand} {v.model} <span className="text-slate-400">({v.color || 'N/A'})</span></td>
+                          <td className="p-4 font-mono text-xs text-slate-400">{v.stolen_date}</td>
+                          <td className="p-4 font-mono text-xs text-blue-600 bg-blue-500/10 px-2 py-1 rounded-md">{v.report_number}</td>
                           
                           <td className="p-4 text-right">
                             <div className="flex items-center justify-end gap-2">
                               <button
                                 onClick={() => triggerPrint(v)}
-                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-all"
+                                className={`p-1.5 rounded-lg border transition-all ${
+                                  isDarkMode 
+                                    ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300' 
+                                    : 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700'
+                                }`}
                                 title="Réimprimer le récépissé"
                               >
-                                <Printer className="w-4 h-4 text-emerald-400" />
+                                <Printer className="w-4 h-4 text-emerald-600" />
                               </button>
 
-                              {v.status === 'STOLEN' && (
+                              {v.status === 'STOLEN' ? (
                                 <button
                                   onClick={() => handleMarkAsRecovered(v.id, v.plate_number)}
                                   disabled={actionLoading === v.id}
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-emerald-600 text-slate-300 hover:text-white border border-slate-700 transition-all disabled:opacity-50"
+                                  className="px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 text-emerald-600 hover:text-white border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50"
                                 >
                                   {actionLoading === v.id ? (
                                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                   ) : (
                                     <CheckCircle className="w-3.5 h-3.5" />
                                   )}
-                                  Retrouvé ?
+                                  Retrouvé
                                 </button>
-                              )}
-                              {v.status === 'RECOVERED' && (
-                                <span className="text-xs text-slate-600 font-medium italic">Dossier clos</span>
+                              ) : (
+                                <span className="text-xs text-slate-400 font-medium italic">Clôturé</span>
                               )}
                             </div>
                           </td>
@@ -679,7 +753,6 @@ export default function AdminDashboard() {
               </>
             )}
           </div>
-
         </main>
       </div>
     </div>
