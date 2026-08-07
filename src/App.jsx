@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
-import { Sun, Moon } from 'lucide-react'; // Import des icônes pour le thème
+import { Sun, Moon } from 'lucide-react';
 
 // Pages & Écrans
 import LoginScreen from './pages/LoginScreen';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import CommissaireDashboard from './pages/CommissaireDashboard';
 import AgentBureauDashboard from './pages/AgentBureauDashboard';
-import AgentterrainDashboard from './pages/AgentterrainDashboard';
+import AgentTerrainDashboard from './pages/AgentTerrainDashboard'; // ✅ 'T' majuscule corrigé
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -119,7 +119,7 @@ export default function App() {
       case 'agent_bureau':
         return <AgentBureauDashboard user={session.user} profile={profile} />;
       case 'agent_terrain':
-        return <AgentterrainDashboard user={session.user} profile={profile} />;
+        return <AgentTerrainDashboard user={session.user} profile={profile} />;
       default:
         return (
           <div className="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-4">
