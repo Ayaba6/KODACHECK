@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { localDb } from '../lib/db';
 import { syncVehiclesWithLocalDB } from '../lib/syncService';
@@ -41,8 +41,67 @@ export default function AgentterrainDashboard() {
   const [lastSync, setLastSync] = useState(localStorage.getItem('last_sync_time') || 'Jamais');
   const [realtimeAlert, setRealtimeAlert] = useState(null);
 
+  // Fonction de chargement mémoïsée avec useCallback
+  const loadRecentStolen = useCallback(async (query = searchTerm) => {
+    setLoading(true);
+    setSelectedVehicle(null);
+    const cleanQuery = query.trim().toUpperCase();
+
+    try {
+      if (navigator.onLine) {
+        // --- MODE EN LIGNE (Supabase) ---
+        let req = supabase
+          .from('stolen_vehicles')
+          .select('*')
+          .eq('status', 'STOLEN')
+          .order('created_at', { ascending: false });
+
+        if (cleanQuery) {
+          req = req.or(
+            `plate_number.ilike.%${cleanQuery}%,vin.ilike.%${cleanQuery}%,owner_name.ilike.%${cleanQuery}%`
+          );
+        }
+
+        const { data, error } = await req.limit(20);
+        if (!error && data) {
+          setRecentStolen(data);
+        }
+      } else {
+        // --- MODE HORS LIGNE (IndexedDB) ---
+        const allLocal = await localDb.stolen_vehicles.toArray();
+        const stolenOnly = allLocal.filter((v) => v.status === 'STOLEN');
+
+        if (cleanQuery) {
+          const filtered = stolenOnly.filter(
+            (v) =>
+              (v.plate_number && v.plate_number.toUpperCase().includes(cleanQuery)) ||
+              (v.vin && v.vin.toUpperCase().includes(cleanQuery)) ||
+              (v.owner_name && v.owner_name.toUpperCase().includes(cleanQuery))
+          );
+          setRecentStolen(filtered.slice(0, 20));
+        } else {
+          stolenOnly.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+          setRecentStolen(stolenOnly.slice(0, 20));
+        }
+      }
+    } catch (err) {
+      console.error('Erreur de chargement des données :', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [searchTerm]);
+
+  // Debounce sur la saisie de recherche (300ms)
   useEffect(() => {
-    // Demande de permission pour les notifications
+    const handler = setTimeout(() => {
+      loadRecentStolen(searchTerm);
+    }, 300);
+
+    return () => clearTimeout(handler);
+  }, [searchTerm, loadRecentStolen]);
+
+  // Initialisation et gestion des événements temps réel / réseau
+  useEffect(() => {
     if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
       Notification.requestPermission();
     }
@@ -52,8 +111,6 @@ export default function AgentterrainDashboard() {
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-
-    loadRecentStolen('');
 
     // Écoute des nouveaux signalements en temps réel via Supabase
     const channel = supabase
@@ -67,7 +124,6 @@ export default function AgentterrainDashboard() {
           if (newVehicle.status === 'STOLEN') {
             setRealtimeAlert(newVehicle);
 
-            // Gestion des notifications (Service Worker PWA avec fallback natif)
             if (Notification.permission === "granted") {
               const title = "🚨 ALERTE VÉHICULE VOLÉ";
               const options = {
@@ -85,7 +141,6 @@ export default function AgentterrainDashboard() {
               }
             }
 
-            // Sauvegarde dans la base locale IndexedDB
             await localDb.stolen_vehicles.put(newVehicle);
             const now = new Date().toLocaleString('fr-FR');
             localStorage.setItem('last_sync_time', now);
@@ -102,52 +157,7 @@ export default function AgentterrainDashboard() {
       window.removeEventListener('offline', handleOffline);
       supabase.removeChannel(channel);
     };
-  }, []);
-
-  const loadRecentStolen = async (query = searchTerm) => {
-    setLoading(true);
-    setSelectedVehicle(null);
-    const cleanQuery = query.trim().toUpperCase();
-
-    try {
-      if (navigator.onLine) {
-        let req = supabase
-          .from('stolen_vehicles')
-          .select('*')
-          .eq('status', 'STOLEN')
-          .order('created_at', { ascending: false });
-
-        if (cleanQuery) {
-          req = req.or(`plate_number.ilike.%${cleanQuery}%,vin.ilike.%${cleanQuery}%,owner_name.ilike.%${cleanQuery}%`);
-        }
-
-        const { data, error } = await req.limit(20);
-        if (!error && data) {
-          setRecentStolen(data);
-        }
-      } else {
-        // Mode hors-ligne
-        const allLocal = await localDb.stolen_vehicles.toArray();
-        const stolenOnly = allLocal.filter(v => v.status === 'STOLEN');
-
-        if (cleanQuery) {
-          const filtered = stolenOnly.filter(v => 
-            (v.plate_number && v.plate_number.toUpperCase().includes(cleanQuery)) ||
-            (v.vin && v.vin.toUpperCase().includes(cleanQuery)) ||
-            (v.owner_name && v.owner_name.toUpperCase().includes(cleanQuery))
-          );
-          setRecentStolen(filtered.slice(0, 20));
-        } else {
-          stolenOnly.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-          setRecentStolen(stolenOnly.slice(0, 20));
-        }
-      }
-    } catch (err) {
-      console.error("Erreur de chargement des données :", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [searchTerm, loadRecentStolen]);
 
   const handleSync = async () => {
     setIsSyncing(true);
@@ -233,8 +243,6 @@ export default function AgentterrainDashboard() {
 
           {/* Statut Réseau, Switch Thème & Actions */}
           <div className="flex items-center gap-2 sm:gap-3">
-            
-            {/* Bouton Switch Mode Sombre / Clair */}
             <button
               onClick={() => setIsDarkMode(!isDarkMode)}
               className={`p-2 rounded-xl border transition-colors flex items-center gap-1.5 text-xs font-medium ${
@@ -248,7 +256,6 @@ export default function AgentterrainDashboard() {
               <span className="hidden md:inline">{isDarkMode ? 'Clair' : 'Sombre'}</span>
             </button>
 
-            {/* Indicateur d'état réseau */}
             <div className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl border transition-all ${
               isOnline 
                 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' 
@@ -258,7 +265,6 @@ export default function AgentterrainDashboard() {
               <span className="hidden sm:inline">{isOnline ? 'En ligne' : 'Hors ligne'}</span>
             </div>
 
-            {/* Bouton Synchronisation */}
             {isOnline && (
               <button
                 onClick={handleSync}
@@ -277,7 +283,6 @@ export default function AgentterrainDashboard() {
 
             <div className={`h-6 w-[1px] hidden sm:block ${isDarkMode ? 'bg-slate-800' : 'bg-slate-200'}`} />
 
-            {/* Bouton Déconnexion */}
             <button 
               onClick={() => supabase.auth.signOut()}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all text-xs font-medium ${
@@ -316,10 +321,7 @@ export default function AgentterrainDashboard() {
               <input
                 type="text"
                 value={searchTerm}
-                onChange={(e) => {
-                  setSearchTerm(e.target.value);
-                  loadRecentStolen(e.target.value);
-                }}
+                onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Ex: 11-JJ-4567 ou VIN..."
                 className={`w-full border rounded-xl py-3 pl-10 pr-8 font-mono text-base uppercase focus:outline-none focus:border-blue-500 transition-colors ${
                   isDarkMode 

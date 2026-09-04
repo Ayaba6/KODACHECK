@@ -11,7 +11,7 @@ export default function CameraScanner({ onScanComplete, onClose }) {
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' }
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -30,11 +30,62 @@ export default function CameraScanner({ onScanComplete, onClose }) {
     }
   };
 
+  // Traitement d'image : binarisation et augmentation du contraste
+  const preprocessImage = (canvas) => {
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+
+    for (let i = 0; i < data.length; i += 4) {
+      const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+      const color = avg > 110 ? 255 : 0; // Binarisation (Noir / Blanc)
+      data[i] = color;     // Red
+      data[i + 1] = color; // Green
+      data[i + 2] = color; // Blue
+    }
+    ctx.putImageData(imageData, 0, 0);
+  };
+
+  // Module d'autocorrection OCR intelligent pour les plaques d'immatriculation
+  const normalizePlate = (rawText) => {
+    if (!rawText) return '';
+
+    const charMapToNumber = { 'O': '0', 'Q': '0', 'D': '0', 'I': '1', 'L': '1', 'Z': '2', 'S': '5', 'B': '8' };
+    const charMapToLetter = { '0': 'O', '1': 'I', '5': 'S', '8': 'B', '2': 'Z' };
+
+    // Découpage ligne par ligne et nettoyage initial
+    const lines = rawText
+      .split('\n')
+      .map(line => line.toUpperCase().replace(/[^A-Z0-9]/g, '').trim())
+      .filter(line => line.length > 0 && line !== 'BF'); // Ignorer le logo BF/bruits
+
+    const correctedLines = lines.map(part => {
+      let fixed = '';
+      const digitCount = (part.match(/[0-9]/g) || []).length;
+      const letterCount = (part.match(/[A-Z]/g) || []).length;
+
+      // Si le bloc contient principalement des chiffres, conversion des lettres confondues en chiffres
+      if (digitCount >= letterCount) {
+        for (let char of part) {
+          fixed += charMapToNumber[char] || char;
+        }
+      } else {
+        // Conversion des chiffres confondus en lettres
+        for (let char of part) {
+          fixed += charMapToLetter[char] || char;
+        }
+      }
+      return fixed;
+    });
+
+    return correctedLines.join(' ').trim();
+  };
+
   const captureAndRecognize = async () => {
     if (!videoRef.current) return;
 
     setLoading(true);
-    setProgress('Capture de l image...');
+    setProgress('Capture & prétraitement...');
 
     const canvas = document.createElement('canvas');
     canvas.width = videoRef.current.videoWidth;
@@ -42,10 +93,13 @@ export default function CameraScanner({ onScanComplete, onClose }) {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
 
+    // Amélioration visuelle pour l'OCR
+    preprocessImage(canvas);
+
     const imageData = canvas.toDataURL('image/png');
     stopCamera();
 
-    setProgress('Analyse de la plaque...');
+    setProgress('Analyse OCR en cours...');
     try {
       const { data: { text } } = await Tesseract.recognize(
         imageData,
@@ -59,8 +113,9 @@ export default function CameraScanner({ onScanComplete, onClose }) {
         }
       );
 
-      const cleanText = text.replace(/[^A-Z0-9-]/gi, '').trim();
-      onScanComplete(cleanText);
+      // Application de l'autocorrection pro
+      const cleanPlate = normalizePlate(text);
+      onScanComplete(cleanPlate);
     } catch (err) {
       alert("Erreur lors de la lecture de l'image.");
     } finally {
@@ -71,7 +126,7 @@ export default function CameraScanner({ onScanComplete, onClose }) {
   return (
     <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-sm flex flex-col items-center justify-center p-4 z-50">
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 w-full max-w-md relative flex flex-col items-center">
-        
+
         <button 
           onClick={() => { stopCamera(); onClose(); }}
           className="absolute top-3 right-3 text-slate-400 hover:text-white"
@@ -98,7 +153,7 @@ export default function CameraScanner({ onScanComplete, onClose }) {
               Activer la caméra
             </button>
           )}
-          
+
           {loading && (
             <div className="absolute inset-0 bg-slate-950/80 flex flex-col items-center justify-center text-white text-sm">
               <RefreshCw className="w-8 h-8 text-blue-500 animate-spin mb-2" />
