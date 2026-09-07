@@ -1,12 +1,17 @@
-import React, { useRef, useState } from 'react';
-import Tesseract from 'tesseract.js';
+import React, { useRef, useState, useEffect } from 'react';
+import { createWorker } from 'tesseract.js';
 import { Camera, RefreshCw, X } from 'lucide-react';
 
 export default function CameraScanner({ onScanComplete, onClose }) {
   const videoRef = useRef(null);
-  const [isCameraActive, setIsCameraActive] = useState(false);
+  const canvasRef = useRef(null);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState('');
+
+  useEffect(() => {
+    startCamera();
+    return () => stopCamera();
+  }, []);
 
   const startCamera = async () => {
     try {
@@ -15,159 +20,123 @@ export default function CameraScanner({ onScanComplete, onClose }) {
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        setIsCameraActive(true);
       }
     } catch (err) {
-      alert("Impossible d'accéder à la caméra : " + err.message);
+      console.error("Erreur d'accès à la caméra:", err);
     }
   };
 
   const stopCamera = () => {
     if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject;
-      stream.getTracks().forEach(track => track.stop());
-      setIsCameraActive(false);
+      videoRef.current.srcObject.getTracks().forEach(track => track.stop());
     }
   };
 
-  // Traitement d'image : binarisation et augmentation du contraste
-  const preprocessImage = (canvas) => {
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-
-    for (let i = 0; i < data.length; i += 4) {
-      const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
-      const color = avg > 110 ? 255 : 0; // Binarisation (Noir / Blanc)
-      data[i] = color;     // Red
-      data[i + 1] = color; // Green
-      data[i + 2] = color; // Blue
+  // Nettoyage et formatage du texte extrait (Format Burkina Faso)
+  const parseBurkinaPlate = (rawText) => {
+    // Transformer en majuscules et supprimer les caractères spéciaux inutiles
+    const clean = rawText.toUpperCase().replace(/[^A-Z0-9]/g, ' ');
+    
+    // Motif 1 : Format standard (ex: 11 RJ 8596 BF)
+    const match1 = clean.match(/(\d{1,2})\s*([A-Z]{1,3})\s*(\d{3,4})\s*(BF)?/);
+    if (match1) {
+      const region = match1[1];
+      const series = match1[2];
+      const num = match1[3];
+      return `${region}-${series}-${num}`;
     }
-    ctx.putImageData(imageData, 0, 0);
-  };
 
-  // Module d'autocorrection OCR intelligent pour les plaques d'immatriculation
-  const normalizePlate = (rawText) => {
-    if (!rawText) return '';
+    // Motif 2 : Format récent/moto (ex: 4131 5X 03 BF)
+    const match2 = clean.match(/(\d{4})\s*([0-9][A-Z])\s*(\d{2})/);
+    if (match2) {
+      return `${match2[1]}-${match2[2]}-${match2[3]}`;
+    }
 
-    const charMapToNumber = { 'O': '0', 'Q': '0', 'D': '0', 'I': '1', 'L': '1', 'Z': '2', 'S': '5', 'B': '8' };
-    const charMapToLetter = { '0': 'O', '1': 'I', '5': 'S', '8': 'B', '2': 'Z' };
-
-    // Découpage ligne par ligne et nettoyage initial
-    const lines = rawText
-      .split('\n')
-      .map(line => line.toUpperCase().replace(/[^A-Z0-9]/g, '').trim())
-      .filter(line => line.length > 0 && line !== 'BF'); // Ignorer le logo BF/bruits
-
-    const correctedLines = lines.map(part => {
-      let fixed = '';
-      const digitCount = (part.match(/[0-9]/g) || []).length;
-      const letterCount = (part.match(/[A-Z]/g) || []).length;
-
-      // Si le bloc contient principalement des chiffres, conversion des lettres confondues en chiffres
-      if (digitCount >= letterCount) {
-        for (let char of part) {
-          fixed += charMapToNumber[char] || char;
-        }
-      } else {
-        // Conversion des chiffres confondus en lettres
-        for (let char of part) {
-          fixed += charMapToLetter[char] || char;
-        }
-      }
-      return fixed;
-    });
-
-    return correctedLines.join(' ').trim();
+    return null;
   };
 
   const captureAndRecognize = async () => {
-    if (!videoRef.current) return;
+    if (!videoRef.current || !canvasRef.current) return;
 
     setLoading(true);
-    setProgress('Capture & prétraitement...');
+    setProgress('Capture de l\'image...');
 
-    const canvas = document.createElement('canvas');
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // Amélioration visuelle pour l'OCR
-    preprocessImage(canvas);
-
-    const imageData = canvas.toDataURL('image/png');
-    stopCamera();
-
-    setProgress('Analyse OCR en cours...');
     try {
-      const { data: { text } } = await Tesseract.recognize(
-        imageData,
-        'eng',
-        {
-          logger: m => {
-            if (m.status === 'recognizing text') {
-              setProgress(`Détection : ${Math.round(m.progress * 100)}%`);
-            }
-          }
-        }
-      );
+      setProgress('Analyse de la plaque...');
+      const worker = await createWorker('eng');
+      
+      const { data: { text } } = await worker.recognize(canvas);
+      await worker.terminate();
 
-      // Application de l'autocorrection pro
-      const cleanPlate = normalizePlate(text);
-      onScanComplete(cleanPlate);
+      const plateNumber = parseBurkinaPlate(text);
+
+      if (plateNumber) {
+        stopCamera();
+        onScanComplete(plateNumber);
+      } else {
+        // Si la Regex échoue, renvoyer la ligne la plus pertinente nettoyée
+        const fallbackText = text.replace(/[^A-Z0-9\s]/gi, '').trim().split('\n').join(' ');
+        if (fallbackText.length > 3) {
+          stopCamera();
+          onScanComplete(fallbackText);
+        } else {
+          alert("Plaque non reconnue. Essayez de vous rapprocher et de bien éclairer la plaque.");
+        }
+      }
     } catch (err) {
-      alert("Erreur lors de la lecture de l'image.");
+      console.error("Erreur OCR:", err);
+      alert("Erreur lors de la lecture de la plaque.");
     } finally {
       setLoading(false);
+      setProgress('');
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-sm flex flex-col items-center justify-center p-4 z-50">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 w-full max-w-md relative flex flex-col items-center">
-
-        <button 
-          onClick={() => { stopCamera(); onClose(); }}
-          className="absolute top-3 right-3 text-slate-400 hover:text-white"
-        >
-          <X className="w-6 h-6" />
+    <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-between p-4">
+      {/* Header */}
+      <div className="w-full flex items-center justify-between text-white py-2">
+        <span className="font-bold text-sm">Scanner de Plaque</span>
+        <button onClick={onClose} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700">
+          <X className="w-5 h-5 text-white" />
         </button>
+      </div>
 
-        <h3 className="text-white font-bold mb-4 flex items-center gap-2">
-          <Camera className="w-5 h-5 text-blue-500" /> Scanner la plaque
-        </h3>
+      {/* Caméra & Viseur */}
+      <div className="relative w-full max-w-md aspect-video rounded-2xl overflow-hidden border-2 border-blue-500/50 bg-black flex items-center justify-center">
+        <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+        <canvas ref={canvasRef} className="hidden" />
 
-        <div className="relative w-full aspect-video bg-black rounded-xl overflow-hidden border border-slate-700 flex items-center justify-center mb-4">
-          <video 
-            ref={videoRef} 
-            autoPlay 
-            playsInline 
-            className="w-full h-full object-cover"
-          />
-          {!isCameraActive && !loading && (
-            <button
-              onClick={startCamera}
-              className="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded-lg text-sm"
-            >
-              Activer la caméra
-            </button>
-          )}
-
-          {loading && (
-            <div className="absolute inset-0 bg-slate-950/80 flex flex-col items-center justify-center text-white text-sm">
-              <RefreshCw className="w-8 h-8 text-blue-500 animate-spin mb-2" />
-              <span>{progress}</span>
-            </div>
-          )}
+        {/* Cadre de guidage */}
+        <div className="absolute inset-x-8 inset-y-12 border-2 border-dashed border-yellow-400 rounded-lg pointer-events-none flex items-center justify-center">
+          <span className="text-[10px] text-yellow-300 font-mono bg-black/60 px-2 py-0.5 rounded">
+            Cadrez la plaque ici
+          </span>
         </div>
+      </div>
 
-        {isCameraActive && !loading && (
+      {/* Actions */}
+      <div className="w-full max-w-md my-4 text-center">
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 text-blue-400 font-semibold py-3">
+            <RefreshCw className="w-5 h-5 animate-spin" />
+            <span>{progress}</span>
+          </div>
+        ) : (
           <button
             onClick={captureAndRecognize}
-            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
+            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 px-6 rounded-xl flex items-center justify-center gap-2 shadow-lg"
           >
-            <Camera className="w-5 h-5" /> Capturer & Analyser
+            <Camera className="w-5 h-5" />
+            <span>Lire la plaque</span>
           </button>
         )}
       </div>
