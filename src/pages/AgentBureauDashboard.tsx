@@ -311,7 +311,7 @@ export default function AgentbureauDashboard() {
                 <span className={`text-[10px] uppercase font-semibold tracking-widest -mt-1 ${
                   isDarkMode ? 'text-slate-400' : 'text-slate-500'
                 }`}>
-                  Espace Admin
+                  Espace Agent Bureau
                 </span>
               </div>
             </div>
@@ -661,38 +661,61 @@ export default function AgentbureauDashboard() {
                             Marquer Retrouvé
                           </button>
                         ) : (
-                          <span className="text-xs text-slate-400 font-medium italic text-right flex-1 pr-2">Dossier clos</span>
+                          <span className="text-xs text-slate-400 font-medium py-2 px-3 text-center">
+                            Dossier clos
+                          </span>
                         )}
                       </div>
-
                     </div>
                   ))}
                 </div>
 
-                {/* 2. TABLEAU BUREAU / TABLETTE */}
+                {/* 2. TABLEAU EN DESKTOP */}
                 <div className="hidden md:block overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead className={`text-xs uppercase tracking-wider ${
-                      isDarkMode ? 'bg-slate-950 text-slate-400' : 'bg-slate-100 text-slate-600'
-                    }`}>
-                      <tr>
-                        <th className="p-4 rounded-l-lg">Statut</th>
-                        <th className="p-4">Immatriculation</th>
-                        <th className="p-4">Propriétaire</th>
-                        <th className="p-4">Marque / Modèle</th>
-                        <th className="p-4">Date Vol</th>
-                        <th className="p-4">N° PV</th>
-                        <th className="p-4 rounded-r-lg text-right">Actions</th>
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className={`border-b text-xs font-semibold uppercase ${
+                        isDarkMode ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-500'
+                      }`}>
+                        <th className="p-3">Immatriculation</th>
+                        <th className="p-3">Propriétaire</th>
+                        <th className="p-3">Engin</th>
+                        <th className="p-3">VIN / Châssis</th>
+                        <th className="p-3">Date Vol</th>
+                        <th className="p-3">N° PV</th>
+                        <th className="p-3">Statut</th>
+                        <th className="p-3 text-right">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800/60' : 'divide-slate-200'}`}>
+                    <tbody className="divide-y text-sm">
                       {filteredVehicles.map((v) => (
                         <tr key={v.id} className={`transition-colors ${
-                          isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
+                          isDarkMode 
+                            ? 'divide-slate-800 hover:bg-slate-800/40' 
+                            : 'divide-slate-100 hover:bg-slate-50'
                         }`}>
-                          <td className="p-4">
+                          <td className="p-3 font-mono font-bold text-blue-600">
+                            {v.plate_number}
+                          </td>
+                          <td className="p-3 font-medium">
+                            {v.owner_name}
+                          </td>
+                          <td className="p-3">
+                            <span className="font-semibold">{v.brand} {v.model}</span>
+                            {v.color && <span className="text-xs text-slate-400 block">{v.color}</span>}
+                          </td>
+                          <td className="p-3 font-mono text-xs text-slate-400">
+                            {v.vin || '—'}
+                          </td>
+                          <td className="p-3 text-xs font-mono">
+                            {v.stolen_date}
+                          </td>
+                          <td className="p-3 font-mono text-xs text-blue-600">
+                            {v.report_number}
+                          </td>
+                          <td className="p-3">
                             {v.status === 'STOLEN' ? (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-500 border border-red-500/20">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-500/10 text-red-500 border border-red-500/20">
                                 <span className="relative flex h-2 w-2">
                                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
                                   <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
@@ -700,48 +723,40 @@ export default function AgentbureauDashboard() {
                                 RECHERCHÉ
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
-                                <CheckCircle className="w-3.5 h-3.5" />
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                                <CheckCircle className="w-3.5 h-3.5"/>
                                 RETROUVÉ
                               </span>
                             )}
                           </td>
-                          
-                          <td className="p-4 font-mono font-bold text-base">{v.plate_number}</td>
-                          <td className="p-4 font-medium">{v.owner_name}</td>
-                          <td className="p-4">{v.brand} {v.model} <span className="text-slate-400">({v.color || 'N/A'})</span></td>
-                          <td className="p-4 font-mono text-xs text-slate-400">{v.stolen_date}</td>
-                          <td className="p-4 font-mono text-xs text-blue-600 bg-blue-500/10 px-2 py-1 rounded-md">{v.report_number}</td>
-                          
-                          <td className="p-4 text-right">
+                          <td className="p-3 text-right">
                             <div className="flex items-center justify-end gap-2">
                               <button
                                 onClick={() => triggerPrint(v)}
-                                className={`p-1.5 rounded-lg border transition-all ${
-                                  isDarkMode 
-                                    ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300' 
-                                    : 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700'
+                                title="Imprimer le récépissé"
+                                className={`p-2 rounded-lg border transition-colors ${
+                                  isDarkMode
+                                    ? 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700'
+                                    : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-200'
                                 }`}
-                                title="Réimprimer le récépissé"
                               >
-                                <Printer className="w-4 h-4 text-emerald-600" />
+                                <Printer className="w-4 h-4 text-emerald-600"/>
                               </button>
 
-                              {v.status === 'STOLEN' ? (
+                              {v.status === 'STOLEN' && (
                                 <button
                                   onClick={() => handleMarkAsRecovered(v.id, v.plate_number)}
                                   disabled={actionLoading === v.id}
+                                  title="Marquer comme retrouvé"
                                   className="px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 text-emerald-600 hover:text-white border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50"
                                 >
                                   {actionLoading === v.id ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin"/>
                                   ) : (
-                                    <CheckCircle className="w-3.5 h-3.5" />
+                                    <CheckCircle className="w-3.5 h-3.5"/>
                                   )}
                                   Retrouvé
                                 </button>
-                              ) : (
-                                <span className="text-xs text-slate-400 font-medium italic">Clôturé</span>
                               )}
                             </div>
                           </td>

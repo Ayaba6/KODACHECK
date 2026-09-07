@@ -15,10 +15,12 @@ import {
   Users, 
   X, 
   Save,
-  UserCheck
+  UserCheck,
+  Sun,
+  Moon
 } from 'lucide-react';
 
-export default function SuperAdminDashboard({ user, profile }) {
+export default function SuperAdminDashboard({ user, profile, darkMode, toggleTheme }) {
   const [commissariats, setCommissariats] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
@@ -63,13 +65,12 @@ export default function SuperAdminDashboard({ user, profile }) {
     await supabase.auth.signOut();
   };
 
-  // 1. Créer un Commissariat
   const handleCreateCommissariat = async (e) => {
     e.preventDefault();
     setLoading(true);
     setMessage(null);
 
-    const { data, error } = await supabase.from('commissariats').insert([commForm]).select();
+    const { error } = await supabase.from('commissariats').insert([commForm]).select();
 
     if (error) {
       const errorMsg = error?.message || (typeof error === 'string' ? error : JSON.stringify(error));
@@ -82,7 +83,6 @@ export default function SuperAdminDashboard({ user, profile }) {
     setLoading(false);
   };
 
-  // 2. Créer un Commissaire
   const handleCreateCommissaire = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -151,7 +151,6 @@ export default function SuperAdminDashboard({ user, profile }) {
     }
   };
 
-  // 3. Ouvrir le Modal d'Édition et charger les données du commissariat (effectif + commissaire)
   const handleOpenEditModal = async (commissariat) => {
     setSelectedComm(commissariat);
     setEditForm({
@@ -165,7 +164,6 @@ export default function SuperAdminDashboard({ user, profile }) {
     setCommissaireName(null);
 
     try {
-      // Compter le nombre de profils affectés à ce commissariat
       const { count, error: countError } = await supabase
         .from('profiles')
         .select('*', { count: 'exact', head: true })
@@ -177,7 +175,6 @@ export default function SuperAdminDashboard({ user, profile }) {
         setAgentCount(0);
       }
 
-      // Récupérer le nom du commissaire rattaché
       const { data: commissaireData, error: commError } = await supabase
         .from('profiles')
         .select('full_name')
@@ -200,7 +197,6 @@ export default function SuperAdminDashboard({ user, profile }) {
     }
   };
 
-  // 4. Enregistrer les modifications du Commissariat
   const handleUpdateCommissariat = async (e) => {
     e.preventDefault();
     setSavingEdit(true);
@@ -230,329 +226,378 @@ export default function SuperAdminDashboard({ user, profile }) {
   };
 
   return (
-    <div className="p-6 space-y-8 max-w-7xl mx-auto transition-colors duration-200">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8 max-w-7xl mx-auto transition-colors duration-200">
       
-      {/* En-tête */}
-      <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-red-500/10 dark:bg-red-600/10 border border-red-500/20 rounded-xl text-red-600 dark:text-red-500">
-            <Shield className="w-8 h-8" />
+      {/* En-tête de la page */}
+      <div className="flex items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
+        <div className="flex items-center gap-3.5 min-w-0">
+          <div className="p-2.5 sm:p-3 bg-red-500/10 dark:bg-red-600/10 border border-red-500/20 rounded-2xl text-red-600 dark:text-red-500 shrink-0">
+            <Shield className="w-6 h-6 sm:w-8 sm:h-8" />
           </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate">
               Espace Super Admin
             </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Gestion globale des commissariats ({user?.email || profile?.email})
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 truncate">
+              Gestion globale ({user?.email || profile?.email})
             </p>
           </div>
         </div>
 
-        <button
-          onClick={handleLogout}
-          title="Déconnexion"
-          className="flex items-center gap-2 bg-slate-100 hover:bg-red-50 dark:bg-slate-900 dark:hover:bg-red-950/50 text-slate-700 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 border border-slate-200 dark:border-slate-800 hover:border-red-300 dark:hover:border-red-800/50 p-2.5 md:px-4 md:py-2.5 rounded-xl transition-all text-sm font-medium"
-        >
-          <LogOut className="w-5 h-5 shrink-0" />
-          <span className="hidden md:inline">Déconnexion</span>
-        </button>
+        {/* Action Controls : Dark/Light Switch + Bouton Déconnexion */}
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          
+          {/* Bouton Dark/Light fonctionnel via props */}
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-amber-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all shadow-sm"
+            title={darkMode ? "Passer au mode clair" : "Passer au mode sombre"}
+          >
+            {darkMode ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-slate-700" />}
+          </button>
+
+          {/* Bouton Déconnexion */}
+          <button
+            type="button"
+            onClick={handleLogout}
+            title="Déconnexion"
+            className="flex items-center gap-2 bg-white dark:bg-slate-900 hover:bg-red-50 dark:hover:bg-red-950/50 text-slate-700 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 border border-slate-200 dark:border-slate-800 hover:border-red-300 dark:hover:border-red-800/50 p-2.5 sm:px-4 sm:py-2.5 rounded-xl transition-all text-sm font-semibold shadow-sm"
+          >
+            <LogOut className="w-5 h-5 sm:w-4 sm:h-4 shrink-0 text-slate-400 group-hover:text-red-600" />
+            <span className="hidden sm:inline">Déconnexion</span>
+          </button>
+
+        </div>
       </div>
 
       {/* Messages d'alerte */}
       {message && (
-        <div className={`p-4 rounded-xl border flex items-center justify-between gap-3 text-sm ${
+        <div className={`p-4 rounded-xl border flex items-center justify-between gap-3 text-sm animate-in fade-in duration-200 ${
           message.type === 'success' 
             ? 'bg-emerald-500/10 dark:bg-emerald-950/40 border-emerald-500/30 text-emerald-700 dark:text-emerald-400' 
             : 'bg-red-500/10 dark:bg-red-950/40 border-red-500/30 text-red-700 dark:text-red-400'
         }`}>
           <div className="flex items-center gap-3">
             {message.type === 'success' ? <CheckCircle className="w-5 h-5 shrink-0" /> : <AlertCircle className="w-5 h-5 shrink-0" />}
-            <span>{message.text}</span>
+            <span className="font-medium">{message.text}</span>
           </div>
-          <button onClick={() => setMessage(null)} className="opacity-70 hover:opacity-100">
+          <button onClick={() => setMessage(null)} className="opacity-70 hover:opacity-100 p-1 rounded-lg">
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
-      {/* Formulaires */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      {/* Formulaires d'actions principaux */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8">
         
-        {/* Formulaire 1 : Commissariat */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-2xl space-y-4 shadow-sm dark:shadow-none">
-          <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 font-semibold text-lg">
+        {/* Formulaire 1 : Créer un Commissariat */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 rounded-2xl space-y-5 shadow-sm dark:shadow-none">
+          <div className="flex items-center gap-2.5 text-blue-600 dark:text-blue-400 font-bold text-base sm:text-lg border-b border-slate-100 dark:border-slate-800/60 pb-3">
             <Building2 className="w-5 h-5" />
             <h2>Nouveau Commissariat</h2>
           </div>
 
           <form onSubmit={handleCreateCommissariat} className="space-y-4">
-            <input
-              type="text"
-              placeholder="Code (ex: CMP-OUA-01)"
-              value={commForm.code}
-              onChange={(e) => setCommForm({ ...commForm, code: e.target.value.toUpperCase() })}
-              required
-              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
-            />
-            <input
-              type="text"
-              placeholder="Nom du Commissariat"
-              value={commForm.nom}
-              onChange={(e) => setCommForm({ ...commForm, nom: e.target.value })}
-              required
-              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
-            />
-            <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Code d'identification</label>
               <input
                 type="text"
-                placeholder="Ville"
-                value={commForm.ville}
-                onChange={(e) => setCommForm({ ...commForm, ville: e.target.value })}
+                placeholder="Ex: CMP-OUA-01"
+                value={commForm.code}
+                onChange={(e) => setCommForm({ ...commForm, code: e.target.value.toUpperCase() })}
                 required
-                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
-              />
-              <input
-                type="text"
-                placeholder="Région"
-                value={commForm.region}
-                onChange={(e) => setCommForm({ ...commForm, region: e.target.value })}
-                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
+                className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono uppercase"
               />
             </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Nom du Commissariat</label>
+              <input
+                type="text"
+                placeholder="Ex: Commissariat Central de Ouagadougou"
+                value={commForm.nom}
+                onChange={(e) => setCommForm({ ...commForm, nom: e.target.value })}
+                required
+                className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Ville</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Ouagadougou"
+                  value={commForm.ville}
+                  onChange={(e) => setCommForm({ ...commForm, ville: e.target.value })}
+                  required
+                  className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Région</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Centre"
+                  value={commForm.region}
+                  onChange={(e) => setCommForm({ ...commForm, region: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+              </div>
+            </div>
+
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-slate-300 dark:disabled:bg-slate-800 font-bold py-3 rounded-xl transition-colors flex justify-center items-center gap-2 text-white"
+              className="w-full mt-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-300 dark:disabled:bg-slate-800 font-bold py-3 px-4 rounded-xl transition-all flex justify-center items-center gap-2 text-white shadow-sm text-sm"
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlusCircle className="w-4 h-4" />}
-              Enregistrer le Commissariat
+              <span>Enregistrer le Commissariat</span>
             </button>
           </form>
         </div>
 
-        {/* Formulaire 2 : Commissaire */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-2xl space-y-4 shadow-sm dark:shadow-none">
-          <div className="flex items-center gap-2 text-purple-600 dark:text-purple-400 font-semibold text-lg">
+        {/* Formulaire 2 : Créer un Commissaire */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 rounded-2xl space-y-5 shadow-sm dark:shadow-none">
+          <div className="flex items-center gap-2.5 text-purple-600 dark:text-purple-400 font-bold text-base sm:text-lg border-b border-slate-100 dark:border-slate-800/60 pb-3">
             <UserPlus className="w-5 h-5" />
             <h2>Nouveau Commissaire</h2>
           </div>
 
           <form onSubmit={handleCreateCommissaire} className="space-y-4">
-            <input
-              type="text"
-              placeholder="Nom complet du Commissaire"
-              value={commissaireForm.full_name}
-              onChange={(e) => setCommissaireForm({ ...commissaireForm, full_name: e.target.value })}
-              required
-              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-purple-500"
-            />
-            <input
-              type="email"
-              placeholder="Adresse Email"
-              value={commissaireForm.email}
-              onChange={(e) => setCommissaireForm({ ...commissaireForm, email: e.target.value })}
-              required
-              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-purple-500"
-            />
-            <input
-              type="password"
-              placeholder="Mot de passe"
-              value={commissaireForm.password}
-              onChange={(e) => setCommissaireForm({ ...commissaireForm, password: e.target.value })}
-              required
-              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-purple-500"
-            />
-            
-            <select
-              value={commissaireForm.commissariat_id}
-              onChange={(e) => setCommissaireForm({ ...commissaireForm, commissariat_id: e.target.value })}
-              required
-              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-purple-500"
-            >
-              <option value="">-- Rattacher à un commissariat --</option>
-              {commissariats.map((c) => (
-                <option key={c.id} value={c.id}>
-                  [{c.code}] {c.nom} ({c.ville})
-                </option>
-              ))}
-            </select>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Nom complet</label>
+              <input
+                type="text"
+                placeholder="Ex: Commissaire Traoré Youssouf"
+                value={commissaireForm.full_name}
+                onChange={(e) => setCommissaireForm({ ...commissaireForm, full_name: e.target.value })}
+                required
+                className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Adresse Email</label>
+                <input
+                  type="email"
+                  placeholder="commissaire@police.bf"
+                  value={commissaireForm.email}
+                  onChange={(e) => setCommissaireForm({ ...commissaireForm, email: e.target.value })}
+                  required
+                  className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Mot de passe</label>
+                <input
+                  type="password"
+                  placeholder="••••••••"
+                  value={commissaireForm.password}
+                  onChange={(e) => setCommissaireForm({ ...commissaireForm, password: e.target.value })}
+                  required
+                  className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Affectation Commissariat</label>
+              <select
+                value={commissaireForm.commissariat_id}
+                onChange={(e) => setCommissaireForm({ ...commissaireForm, commissariat_id: e.target.value })}
+                required
+                className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+              >
+                <option value="">-- Sélectionner un commissariat --</option>
+                {commissariats.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    [{c.code}] {c.nom} ({c.ville})
+                  </option>
+                ))}
+              </select>
+            </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-purple-600 hover:bg-purple-500 disabled:bg-slate-300 dark:disabled:bg-slate-800 font-bold py-3 rounded-xl transition-colors flex justify-center items-center gap-2 text-white"
+              className="w-full mt-2 bg-purple-600 hover:bg-purple-500 disabled:bg-slate-300 dark:disabled:bg-slate-800 font-bold py-3 px-4 rounded-xl transition-all flex justify-center items-center gap-2 text-white shadow-sm text-sm"
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-              Créer le compte Commissaire
+              <span>Créer le compte Commissaire</span>
             </button>
           </form>
         </div>
 
       </div>
 
-      {/* Liste des Commissariats */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-2xl space-y-4 shadow-sm dark:shadow-none">
-        <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-200">
-          Commissariats Déployés ({commissariats.length})
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {commissariats.map((c) => (
-            <div 
-              key={c.id} 
-              onClick={() => handleOpenEditModal(c)}
-              className="p-4 bg-slate-50 dark:bg-slate-800/50 hover:bg-blue-50/50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700/50 hover:border-blue-300 dark:hover:border-blue-500/50 rounded-xl flex items-start justify-between gap-3 cursor-pointer transition-all group"
-            >
-              <div className="flex items-start gap-3 min-w-0">
-                <div className="p-2 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-lg shrink-0">
-                  <Building2 className="w-5 h-5" />
-                </div>
-                <div className="space-y-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-700/50 shrink-0">
-                      {c.code}
-                    </span>
-                    <span className="font-semibold text-slate-900 dark:text-white text-sm truncate">{c.nom}</span>
-                  </div>
-                  <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
-                    <MapPin className="w-3.5 h-3.5 shrink-0" />
-                    <span className="truncate">{c.ville} {c.region ? `(${c.region})` : ''}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-1.5 text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                <Edit3 className="w-4 h-4" />
-              </div>
-            </div>
-          ))}
+      {/* Liste des Commissariats Déployés */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 sm:p-6 rounded-2xl space-y-5 shadow-sm dark:shadow-none">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            <Building2 className="w-5 h-5 text-slate-500" />
+            <span>Commissariats Déployés</span>
+            <span className="ml-1 text-xs px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-mono">
+              {commissariats.length}
+            </span>
+          </h2>
         </div>
+
+        {commissariats.length === 0 ? (
+          <div className="text-center py-12 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+            <Building2 className="w-10 h-10 mx-auto text-slate-400 mb-2 opacity-50" />
+            <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Aucun commissariat configuré pour le moment.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {commissariats.map((c) => (
+              <div 
+                key={c.id} 
+                onClick={() => handleOpenEditModal(c)}
+                className="p-4 bg-slate-50/70 dark:bg-slate-800/40 hover:bg-blue-50/50 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700/60 hover:border-blue-300 dark:hover:border-blue-500/50 rounded-xl flex items-start justify-between gap-3 cursor-pointer transition-all group"
+              >
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className="p-2.5 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-xl shrink-0 group-hover:scale-105 transition-transform">
+                    <Building2 className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-mono bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded font-bold border border-blue-200 dark:border-blue-700/50 shrink-0">
+                        {c.code}
+                      </span>
+                      <span className="font-bold text-slate-900 dark:text-white text-sm truncate">{c.nom}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                      <MapPin className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                      <span className="truncate">{c.ville} {c.region ? `(${c.region})` : ''}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-1.5 text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors shrink-0">
+                  <Edit3 className="w-4 h-4" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* MODAL MODIFICATION, COMMISSAIRE ET EFFECTIFS */}
+      {/* MODAL MODIFICATION ET INFORMATIONS */}
       {selectedComm && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-lg rounded-2xl p-6 shadow-2xl relative space-y-6 animate-in fade-in zoom-in duration-150">
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-lg rounded-2xl p-5 sm:p-6 shadow-2xl relative space-y-6 my-8 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
             
-            {/* Header Modal */}
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-lg">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-xl">
                   <Edit3 className="w-5 h-5" />
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 dark:text-white text-base">Fiche du Commissariat</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">ID: {selectedComm.id}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">ID: {selectedComm.id}</p>
                 </div>
               </div>
               <button 
                 onClick={() => setSelectedComm(null)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 transition-colors"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Grille : Commissaire + Effectif */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Commissaire en charge */}
-              <div className="p-3.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 rounded-xl flex items-center gap-3">
-                <div className="p-2 bg-purple-500/10 text-purple-600 dark:text-purple-400 rounded-lg shrink-0">
-                  <UserCheck className="w-5 h-5" />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl space-y-1">
+                <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                  <UserCheck className="w-3.5 h-3.5 text-purple-500" />
+                  <span>Commissaire</span>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                    Commissaire
-                  </p>
-                  <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
-                    {loadingModalData ? (
-                      <Loader2 className="w-4 h-4 animate-spin inline" />
-                    ) : (
-                      commissaireName || 'Non attribué'
-                    )}
-                  </p>
+                <div className="font-bold text-slate-900 dark:text-white text-sm truncate">
+                  {loadingModalData ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-slate-400 my-1" />
+                  ) : (
+                    commissaireName || 'Non attribué'
+                  )}
                 </div>
               </div>
 
-              {/* Effectif Total */}
-              <div className="p-3.5 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/40 rounded-xl flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 bg-blue-600 text-white rounded-lg">
-                    <Users className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">
-                      Effectif Total
-                    </p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Agents & Staff</p>
-                  </div>
+              <div className="p-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl space-y-1">
+                <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                  <Users className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Effectif (Agents)</span>
                 </div>
-                <div className="text-xl font-black text-blue-700 dark:text-blue-300 font-mono">
-                  {loadingModalData ? <Loader2 className="w-4 h-4 animate-spin" /> : agentCount}
+                <div className="font-bold text-slate-900 dark:text-white text-sm">
+                  {loadingModalData ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-slate-400 my-1" />
+                  ) : (
+                    `${agentCount} agent(s)`
+                  )}
                 </div>
               </div>
             </div>
 
-            {/* Formulaire d'édition */}
             <form onSubmit={handleUpdateCommissariat} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Code Commissariat</label>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Code</label>
                 <input
                   type="text"
                   value={editForm.code}
-                  onChange={(e) => setEditForm({ ...editForm, code: e.target.value.toUpperCase() })}
+                  onChange={(e) => setEditForm({ ...editForm, code: e.target.value })}
                   required
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono uppercase"
+                  className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono uppercase"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Nom du Commissariat</label>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Nom du Commissariat</label>
                 <input
                   type="text"
                   value={editForm.nom}
                   onChange={(e) => setEditForm({ ...editForm, nom: e.target.value })}
                   required
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Ville</label>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Ville</label>
                   <input
                     type="text"
                     value={editForm.ville}
                     onChange={(e) => setEditForm({ ...editForm, ville: e.target.value })}
                     required
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                    className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Région</label>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Région</label>
                   <input
                     type="text"
                     value={editForm.region}
                     onChange={(e) => setEditForm({ ...editForm, region: e.target.value })}
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                    className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
                   onClick={() => setSelectedComm(null)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                 >
                   Annuler
                 </button>
                 <button
                   type="submit"
                   disabled={savingEdit}
-                  className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm flex items-center gap-2 disabled:opacity-50 transition-colors"
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-50"
                 >
-                  {savingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                  Enregistrer
+                  {savingEdit ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  <span>Enregistrer</span>
                 </button>
               </div>
             </form>
