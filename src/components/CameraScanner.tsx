@@ -22,7 +22,7 @@ export default function CameraScanner({ onScanComplete, onClose }) {
         videoRef.current.srcObject = stream;
       }
     } catch (err) {
-      console.error("Erreur d'accès à la caméra:", err);
+      console.error("Erreur caméra :", err);
     }
   };
 
@@ -32,24 +32,42 @@ export default function CameraScanner({ onScanComplete, onClose }) {
     }
   };
 
-  // Nettoyage et formatage du texte extrait (Format Burkina Faso)
-  const parseBurkinaPlate = (rawText) => {
-    // Transformer en majuscules et supprimer les caractères spéciaux inutiles
-    const clean = rawText.toUpperCase().replace(/[^A-Z0-9]/g, ' ');
-    
-    // Motif 1 : Format standard (ex: 11 RJ 8596 BF)
-    const match1 = clean.match(/(\d{1,2})\s*([A-Z]{1,3})\s*(\d{3,4})\s*(BF)?/);
-    if (match1) {
-      const region = match1[1];
-      const series = match1[2];
-      const num = match1[3];
-      return `${region}-${series}-${num}`;
+  // Traitement d'image : Contraste élevé pour isoler les caractères
+  const preprocessImage = (ctx, width, height) => {
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      // Conversion en niveau de gris
+      const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+      // Seuil binaire : accentuer le noir/blanc
+      const threshold = avg < 110 ? 0 : 255;
+      data[i] = threshold;
+      data[i + 1] = threshold;
+      data[i + 2] = threshold;
     }
+    ctx.putImageData(imageData, 0, 0);
+  };
 
-    // Motif 2 : Format récent/moto (ex: 4131 5X 03 BF)
-    const match2 = clean.match(/(\d{4})\s*([0-9][A-Z])\s*(\d{2})/);
-    if (match2) {
-      return `${match2[1]}-${match2[2]}-${match2[3]}`;
+  // Extraction stricte du format plaque Burkinabè
+  const cleanBurkinaPlate = (rawText) => {
+    // Nettoyer les caractères parasites
+    const cleaned = rawText.toUpperCase().replace(/[^A-Z0-9]/g, ' ');
+    const words = cleaned.split(/\s+/).filter(w => w.length > 0);
+
+    // Recherche de combinaisons courantes
+    const fullText = words.join(' ');
+    
+    // Motif 1: Ex: 11 RJ 8596 ou 11-RJ-8596
+    const m1 = fullText.match(/(\d{1,2})\s*([A-Z]{1,3})\s*(\d{3,4})/);
+    if (m1) return `${m1[1]}-${m1[2]}-${m1[3]}`;
+
+    // Motif 2: Ex: 4131 5X 03
+    const m2 = fullText.match(/(\d{3,4})\s*(\d[A-Z]|[A-Z]\d|[A-Z]{2})\s*(\d{2})/);
+    if (m2) return `${m2[1]}-${m2[2]}-${m2[3]}`;
+
+    // Fallback : extraire les groupes alphanumériques principaux
+    if (words.length >= 2) {
+      return words.slice(0, 3).join('-');
     }
 
     return null;
@@ -59,41 +77,54 @@ export default function CameraScanner({ onScanComplete, onClose }) {
     if (!videoRef.current || !canvasRef.current) return;
 
     setLoading(true);
-    setProgress('Capture de l\'image...');
+    setProgress('Recadrage de la plaque...');
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // 1. Définir la zone de rognage (zone du viseur au centre)
+    const cropWidth = video.videoWidth * 0.7;
+    const cropHeight = video.videoHeight * 0.35;
+    const cropX = (video.videoWidth - cropWidth) / 2;
+    const cropY = (video.videoHeight - cropHeight) / 2;
+
+    canvas.width = cropWidth;
+    canvas.height = cropHeight;
+
+    // 2. Dessiner SEULEMENT la zone encadrée dans le canvas
+    ctx.drawImage(
+      video,
+      cropX, cropY, cropWidth, cropHeight,
+      0, 0, cropWidth, cropHeight
+    );
+
+    // 3. Appliquer le filtre binaire
+    preprocessImage(ctx, cropWidth, cropHeight);
 
     try {
-      setProgress('Analyse de la plaque...');
+      setProgress('Analyse des caractères...');
       const worker = await createWorker('eng');
       
+      // Restreindre Tesseract aux majuscules et chiffres uniquement
+      await worker.setParameters({
+        tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+      });
+
       const { data: { text } } = await worker.recognize(canvas);
       await worker.terminate();
 
-      const plateNumber = parseBurkinaPlate(text);
+      const result = cleanBurkinaPlate(text);
 
-      if (plateNumber) {
+      if (result) {
         stopCamera();
-        onScanComplete(plateNumber);
+        onScanComplete(result);
       } else {
-        // Si la Regex échoue, renvoyer la ligne la plus pertinente nettoyée
-        const fallbackText = text.replace(/[^A-Z0-9\s]/gi, '').trim().split('\n').join(' ');
-        if (fallbackText.length > 3) {
-          stopCamera();
-          onScanComplete(fallbackText);
-        } else {
-          alert("Plaque non reconnue. Essayez de vous rapprocher et de bien éclairer la plaque.");
-        }
+        alert("Plaque illisible. Veuillez bien cadrer le numéro dans le rectangle jaune.");
       }
     } catch (err) {
-      console.error("Erreur OCR:", err);
-      alert("Erreur lors de la lecture de la plaque.");
+      console.error("Erreur OCR :", err);
+      alert("Erreur de lecture lors du scan.");
     } finally {
       setLoading(false);
       setProgress('');
@@ -102,7 +133,6 @@ export default function CameraScanner({ onScanComplete, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-between p-4">
-      {/* Header */}
       <div className="w-full flex items-center justify-between text-white py-2">
         <span className="font-bold text-sm">Scanner de Plaque</span>
         <button onClick={onClose} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700">
@@ -110,20 +140,19 @@ export default function CameraScanner({ onScanComplete, onClose }) {
         </button>
       </div>
 
-      {/* Caméra & Viseur */}
+      {/* Caméra avec Viseur Ciblé */}
       <div className="relative w-full max-w-md aspect-video rounded-2xl overflow-hidden border-2 border-blue-500/50 bg-black flex items-center justify-center">
         <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
         <canvas ref={canvasRef} className="hidden" />
 
-        {/* Cadre de guidage */}
-        <div className="absolute inset-x-8 inset-y-12 border-2 border-dashed border-yellow-400 rounded-lg pointer-events-none flex items-center justify-center">
-          <span className="text-[10px] text-yellow-300 font-mono bg-black/60 px-2 py-0.5 rounded">
-            Cadrez la plaque ici
+        {/* Zone ciblée de capture (70% largeur x 35% hauteur) */}
+        <div className="absolute w-[70%] h-[35%] border-2 border-dashed border-yellow-400 rounded-lg pointer-events-none flex items-center justify-center bg-yellow-400/5">
+          <span className="text-[10px] text-yellow-300 font-mono bg-black/80 px-2 py-0.5 rounded">
+            Placez la plaque ICI
           </span>
         </div>
       </div>
 
-      {/* Actions */}
       <div className="w-full max-w-md my-4 text-center">
         {loading ? (
           <div className="flex items-center justify-center gap-2 text-blue-400 font-semibold py-3">
