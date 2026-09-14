@@ -80,15 +80,15 @@ function useAgentDashboard(searchTerm: string) {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    // Écoute Supabase Realtime globale pour tous les commissariats
+    // Écoute Supabase Realtime robuste sur la table stolen_vehicles
     const channel = supabase
-      .channel('realtime_stolen_vehicles_global')
+      .channel('public:stolen_vehicles_agent')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'stolen_vehicles' },
         async (payload) => {
           const newVehicle = payload.new;
-          if (newVehicle.status === 'STOLEN') {
+          if (newVehicle && (!newVehicle.status || newVehicle.status === 'STOLEN')) {
             // Récupérer le nom de l'unité émettrice pour enrichir l'alerte
             const { data: commData } = await supabase
               .from('commissariats')
@@ -102,7 +102,14 @@ function useAgentDashboard(searchTerm: string) {
             };
 
             setRealtimeAlerts((prev) => [enrichedVehicle, ...prev]);
-            await localDb.stolen_vehicles.put(newVehicle);
+            
+            // Sauvegarde en base locale si Dexie est disponible
+            try {
+              await localDb.stolen_vehicles.put(newVehicle);
+            } catch (e) {
+              console.error("Erreur sauvegarde locale:", e);
+            }
+
             loadRecentStolen(searchTerm);
           }
         }
@@ -273,19 +280,19 @@ export default function AgentterrainDashboard({ onLogout }: { onLogout?: () => v
       isDarkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900'
     }`}>
       
-      {/* Notifications Flottantes (Toasts / Drawer en temps réel) */}
+      {/* Notifications Flottantes (Toasts en temps réel) */}
       {realtimeAlerts.length > 0 && (
-        <div className="fixed top-16 right-4 z-50 w-80 max-w-[90vw] space-y-2">
+        <div className="fixed top-20 right-3 left-3 sm:left-auto sm:right-4 sm:w-80 z-50 space-y-2">
           {realtimeAlerts.slice(0, 3).map((alert, idx) => (
             <div key={alert.id || idx} className="bg-red-600 text-white p-3 rounded-2xl shadow-2xl border border-red-400 flex items-center justify-between gap-2 animate-bounce">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0">
                 <Bell className="w-5 h-5 shrink-0 animate-pulse text-amber-300" />
-                <div className="text-xs">
-                  <p className="font-black uppercase">ALERTE VOL ({alert.commissariats?.code || 'NAT'})</p>
-                  <p className="font-mono font-bold text-amber-200">Plaque: {alert.plate_number}</p>
+                <div className="text-xs min-w-0">
+                  <p className="font-black uppercase tracking-tight">ALERTE VOL ({alert.commissariats?.code || 'NAT'})</p>
+                  <p className="font-mono font-bold text-amber-200 truncate">Plaque: {alert.plate_number}</p>
                 </div>
               </div>
-              <div className="flex gap-1">
+              <div className="flex gap-1 shrink-0">
                 <button 
                   onClick={() => {
                     setSelectedVehicle(alert);
@@ -307,48 +314,79 @@ export default function AgentterrainDashboard({ onLogout }: { onLogout?: () => v
         </div>
       )}
 
-      {/* Header compact */}
-      <header className={`border-b px-4 py-2.5 sticky top-0 z-40 backdrop-blur-md ${
+      {/* Header Mobile & Desktop Ultra Responsive */}
+      <header className={`border-b px-3 sm:px-6 py-3 sticky top-0 z-40 backdrop-blur-md ${
         isDarkMode ? 'bg-slate-900/90 border-slate-800' : 'bg-white/90 border-slate-200 shadow-sm'
       }`}>
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5">
-            <div className="p-1.5 bg-blue-600/10 border border-blue-500/20 rounded-lg text-blue-500 shrink-0">
-              <Shield className="w-5 h-5" />
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          
+          {/* Ligne 1 / Gauche : Logo, Badge & Infos Agent */}
+          <div className="flex items-center justify-between sm:justify-start gap-2.5 min-w-0">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="p-1.5 bg-blue-600/10 border border-blue-500/20 rounded-lg text-blue-500 shrink-0">
+                <Shield className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <h1 className="font-black text-sm sm:text-base tracking-tight leading-none">KODACHECK</h1>
+                  {agentProfile?.badge_number && (
+                    <span className="text-[9px] font-mono font-bold bg-blue-500/10 text-blue-500 px-1.5 py-0.5 rounded border border-blue-500/25 shrink-0">
+                      {agentProfile.badge_number}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-400 font-medium flex items-center gap-1 truncate max-w-[220px] sm:max-w-none">
+                  <User className="w-3 h-3 inline shrink-0" /> <span className="truncate">{agentProfile?.full_name || 'Agent Terrain'}</span>
+                  {agentProfile?.commissariats?.nom && (
+                    <>
+                      <span className="shrink-0">•</span>
+                      <Building2 className="w-3 h-3 inline shrink-0" /> <span className="truncate">{agentProfile.commissariats.nom}</span>
+                    </>
+                  )}
+                </p>
+              </div>
             </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <h1 className="font-black text-sm sm:text-base tracking-tight leading-none">KODACHECK</h1>
-                {agentProfile?.badge_number && (
-                  <span className="text-[9px] font-mono font-bold bg-blue-500/10 text-blue-500 px-1.5 py-0.5 rounded border border-blue-500/20">
-                    {agentProfile.badge_number}
+
+            {/* Boutons d'actions directs sur mobile pour éviter le débordement */}
+            <div className="flex items-center gap-1 sm:hidden shrink-0">
+              <button
+                onClick={() => setShowAlertsDrawer(!showAlertsDrawer)}
+                className={`relative p-2 rounded-lg border ${isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-100 border-slate-300'}`}
+              >
+                <Bell className="w-4 h-4" />
+                {realtimeAlerts.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[9px] font-black w-3.5 h-3.5 rounded-full flex items-center justify-center">
+                    {realtimeAlerts.length}
                   </span>
                 )}
-              </div>
-              <p className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
-                <User className="w-3 h-3 inline" /> {agentProfile?.full_name || 'Agent Terrain'}
-                {agentProfile?.commissariats?.nom && (
-                  <>
-                    <span>•</span>
-                    <Building2 className="w-3 h-3 inline" /> {agentProfile.commissariats.nom}
-                  </>
-                )}
-              </p>
+              </button>
+              <button
+                onClick={() => setIsDarkMode(!isDarkMode)}
+                className={`p-2 rounded-lg border ${isDarkMode ? 'bg-slate-800 border-slate-700 text-yellow-400' : 'bg-slate-100 border-slate-300'}`}
+              >
+                {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              </button>
+              <button
+                onClick={handleSignOut}
+                className="p-2 rounded-lg border border-red-500/20 bg-red-500/10 text-red-500"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            {/* Bouton Notification Drawer */}
+          {/* Ligne 2 / Droite : Actions Desktop & Indicateurs d'état */}
+          <div className="hidden sm:flex items-center gap-2 shrink-0">
             <button
               onClick={() => setShowAlertsDrawer(!showAlertsDrawer)}
-              className={`relative p-1.5 rounded-lg border transition-colors ${
+              className={`relative p-2 rounded-xl border transition-colors ${
                 isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-100 border-slate-300 text-slate-700'
               }`}
               title="Historique des alertes en direct"
             >
-              <Bell className="w-3.5 h-3.5" />
+              <Bell className="w-4 h-4" />
               {realtimeAlerts.length > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[9px] font-black w-3.5 h-3.5 rounded-full flex items-center justify-center">
+                <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-black w-4 h-4 rounded-full flex items-center justify-center">
                   {realtimeAlerts.length}
                 </span>
               )}
@@ -356,51 +394,75 @@ export default function AgentterrainDashboard({ onLogout }: { onLogout?: () => v
 
             <button
               onClick={() => setIsDarkMode(!isDarkMode)}
-              className={`p-1.5 rounded-lg border transition-colors ${
+              className={`p-2 rounded-xl border transition-colors ${
                 isDarkMode ? 'bg-slate-800 border-slate-700 text-yellow-400' : 'bg-slate-100 border-slate-300 text-slate-700'
               }`}
+              title="Changer le thème"
             >
-              {isDarkMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+              {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
 
-            <div className={`flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-lg border ${
+            <div className={`flex items-center gap-1 text-xs font-bold px-2.5 py-2 rounded-xl border ${
               isOnline ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-amber-500/10 border-amber-500/30 text-amber-500'
             }`}>
-              {isOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+              {isOnline ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
             </div>
 
             {isOnline && (
               <button
                 onClick={handleSync}
                 disabled={isSyncing}
-                className={`p-1.5 rounded-lg border transition-colors ${
+                className={`p-2 rounded-xl border transition-colors ${
                   isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-100 border-slate-300 text-slate-700'
                 }`}
                 title="Synchroniser la base locale"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-500' : ''}`} />
+                <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-blue-500' : ''}`} />
               </button>
             )}
 
             <button
               onClick={handleSignOut}
-              className={`p-1.5 rounded-lg border text-red-500 hover:bg-red-500/10 transition-colors ${
-                isDarkMode ? 'border-slate-800' : 'border-slate-200'
+              className={`p-2 rounded-xl border text-red-500 hover:bg-red-500/10 transition-colors ${
+                isDarkMode ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-white'
               }`}
               title="Déconnexion"
             >
-              <LogOut className="w-3.5 h-3.5" />
+              <LogOut className="w-4 h-4" />
             </button>
           </div>
+
         </div>
       </header>
+
+      {/* Drawer des alertes si clochée */}
+      {showAlertsDrawer && (
+        <div className="bg-slate-900 border-b border-slate-800 p-4 text-xs space-y-2 max-w-7xl mx-auto w-full">
+          <div className="flex justify-between items-center font-bold">
+            <span className="text-slate-300 uppercase tracking-wide">File d'attente des alertes en direct ({realtimeAlerts.length})</span>
+            <button onClick={() => setShowAlertsDrawer(false)} className="text-slate-400 hover:text-white">Fermer</button>
+          </div>
+          {realtimeAlerts.length === 0 ? (
+            <p className="text-slate-500 py-2">Aucune alerte en attente.</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+              {realtimeAlerts.map((alert, i) => (
+                <div key={i} onClick={() => { setSelectedVehicle(alert); setShowAlertsDrawer(false); }} className="bg-slate-950 p-2.5 rounded-xl border border-red-500/30 cursor-pointer hover:border-red-500">
+                  <p className="font-mono font-black text-red-400">{alert.plate_number}</p>
+                  <p className="text-slate-300">{alert.brand} {alert.model}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Main Content Layout */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-5">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
           
           {/* ================= COLONNE GAUCHE (Recherche + Fiche Fixe PC) ================= */}
-          <div className="lg:col-span-5 space-y-4 lg:sticky lg:top-16">
+          <div className="lg:col-span-5 space-y-4 lg:sticky lg:top-20">
             
             {/* Barre de Recherche Compacte */}
             <div className={`p-3 rounded-2xl border ${
