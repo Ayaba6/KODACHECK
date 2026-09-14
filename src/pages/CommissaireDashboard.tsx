@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { 
   UserCheck, 
   Users, 
@@ -17,7 +17,9 @@ import {
   Calendar, 
   FileText,
   LogOut,
-  Trash2
+  Trash2,
+  Sun,
+  Moon
 } from 'lucide-react';
 
 export default function CommissaireDashboard() {
@@ -29,6 +31,26 @@ export default function CommissaireDashboard() {
   const [loadingDeclarations, setLoadingDeclarations] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [message, setMessage] = useState(null);
+
+  // État pour gérer le mode sombre/clair localement
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    return document.documentElement.classList.contains('dark') || 
+           localStorage.getItem('theme') === 'dark';
+  });
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [isDarkMode]);
+
+  const toggleTheme = () => {
+    setIsDarkMode(!isDarkMode);
+  };
 
   // Formulaire Agent
   const [agentForm, setAgentForm] = useState({
@@ -79,26 +101,18 @@ export default function CommissaireDashboard() {
     if (data) setAgents(data);
   };
 
+  // Récupération des engins depuis 'stolen_vehicles' liés à ce commissariat
   const fetchDeclarations = async (commissariatId) => {
     setLoadingDeclarations(true);
     try {
       const { data, error } = await supabase
-        .from('declarations')
+        .from('stolen_vehicles')
         .select('*')
         .eq('commissariat_id', commissariatId)
         .order('created_at', { ascending: false });
 
-      if (error) {
-        const { data: altData } = await supabase
-          .from('vehicules_voles')
-          .select('*')
-          .eq('commissariat_id', commissariatId)
-          .order('created_at', { ascending: false });
-
-        if (altData) setDeclarations(altData);
-      } else if (data) {
-        setDeclarations(data);
-      }
+      if (error) throw error;
+      if (data) setDeclarations(data);
     } catch (err) {
       console.error("Erreur chargement déclarations :", err);
     } finally {
@@ -116,48 +130,34 @@ export default function CommissaireDashboard() {
         throw new Error("Impossible de déterminer le commissariat de rattachement.");
       }
 
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-      const tempSupabase = createClient(supabaseUrl, supabaseAnonKey, {
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false,
-          detectSessionInUrl: false,
-        }
-      });
-
-      const { data: authData, error: authError } = await tempSupabase.auth.signUp({
+      // 1. Création de l'utilisateur dans Supabase Auth via l'API Admin
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
         email: agentForm.email.trim(),
         password: agentForm.password,
-        options: {
-          data: {
-            full_name: agentForm.full_name.trim(),
-            role: agentForm.role,
-            commissariat_id: currentCommissariat.id
-          }
+        email_confirm: true,
+        user_metadata: {
+          full_name: agentForm.full_name.trim(),
+          role: agentForm.role,
+          commissariat_id: currentCommissariat.id
         }
       });
 
       if (authError) throw authError;
 
+      // 2. Création/Mise à jour du profil correspondant dans la table 'profiles'
       if (authData?.user) {
-        const badgeNumber = `MAT-${authData.user.id.substring(0, 6).toUpperCase()}`;
-
-        const { error: profileError } = await supabase.from('profiles').upsert([
-          {
+        const { error: profileError } = await supabaseAdmin
+          .from('profiles')
+          .upsert({
             id: authData.user.id,
             email: agentForm.email.trim(),
             full_name: agentForm.full_name.trim(),
             role: agentForm.role,
             commissariat_id: currentCommissariat.id,
-            badge_number: badgeNumber
-          }
-        ]);
+            updated_at: new Date().toISOString()
+          });
 
-        if (profileError) {
-          console.warn("Avertissement lors de la mise à jour directe dans profiles :", profileError);
-        }
+        if (profileError) throw profileError;
       }
 
       setMessage({ 
@@ -178,7 +178,7 @@ export default function CommissaireDashboard() {
 
   const handleDeleteAgent = async (agent) => {
     const confirmDelete = window.confirm(
-      `Êtes-vous sûr de vouloir retirer l'agent ${agent.full_name || agent.email} de ce commissariat ? (Mutation/Affectation)`
+      `Êtes-vous sûr de vouloir retirer l'agent ${agent.full_name || agent.email} de ce commissariat ?`
     );
 
     if (!confirmDelete) return;
@@ -187,15 +187,10 @@ export default function CommissaireDashboard() {
     setMessage(null);
 
     try {
-      // Option A : Détacher l'agent du commissariat (Mutation)
       const { error } = await supabase
         .from('profiles')
         .update({ commissariat_id: null })
         .eq('id', agent.id);
-
-      // Remarque : Si vous préférez supprimer définitivement la ligne du profil, 
-      // remplacez l'instruction ci-dessus par :
-      // const { error } = await supabase.from('profiles').delete().eq('id', agent.id);
 
       if (error) throw error;
 
@@ -204,7 +199,6 @@ export default function CommissaireDashboard() {
         text: `L'agent ${agent.full_name || agent.email} a été retiré de l'effectif.`
       });
 
-      // Mettre à jour la liste locale
       setAgents(agents.filter(a => a.id !== agent.id));
     } catch (err) {
       console.error("Erreur lors du retrait de l'agent :", err);
@@ -217,45 +211,58 @@ export default function CommissaireDashboard() {
     }
   };
 
+  // Filtrage basé sur le champ 'status' de stolen_vehicles ('STOLEN' / 'RECOVERED')
   const declarationsVols = declarations.filter(
-    (d) => !d.statut || d.statut.toUpperCase() === 'VOLE' || d.statut.toUpperCase() === 'EN_RECHERCHE' || d.statut.toUpperCase() === 'EN_COURS'
+    (d) => !d.status || d.status.toUpperCase() === 'STOLEN'
   );
 
   const declarationsRetrouves = declarations.filter(
-    (d) => d.statut && (d.statut.toUpperCase() === 'RETROUVE' || d.statut.toUpperCase() === 'CLOTURE')
+    (d) => d.status && d.status.toUpperCase() === 'RECOVERED'
   );
 
   return (
-    <div className="p-6 space-y-8 max-w-6xl mx-auto transition-colors duration-200">
+    <div className="p-4 sm:p-6 space-y-8 max-w-6xl mx-auto transition-colors duration-200 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen">
       
-      {/* En-tête avec détails du commissariat & Déconnexion */}
-      <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
+      {/* En-tête avec détails du commissariat, Mode Sombre/Clair & Déconnexion */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
         <div className="flex items-center gap-3">
-          <div className="p-3 bg-purple-500/10 dark:bg-purple-600/10 border border-purple-500/20 rounded-xl text-purple-600 dark:text-purple-400">
-            <Shield className="w-8 h-8" />
+          <div className="p-2.5 sm:p-3 bg-purple-500/10 dark:bg-purple-600/10 border border-purple-500/20 rounded-xl text-purple-600 dark:text-purple-400 shrink-0">
+            <Shield className="w-6 h-6 sm:w-8 sm:h-8" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Espace Commissaire</h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Gestion des effectifs, affectations et suivi des déclarations</p>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Espace Commissaire</h1>
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">Gestion des effectifs, affectations et suivi des déclarations</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
           {currentCommissariat && (
-            <div className="bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-4 py-2 rounded-xl text-right">
-              <span className="text-xs text-blue-600 dark:text-blue-400 block font-mono font-bold">{currentCommissariat.code}</span>
-              <span className="text-sm font-bold text-slate-800 dark:text-white">{currentCommissariat.nom}</span>
+            <div className="bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3 sm:px-4 py-2 rounded-xl text-left sm:text-right flex-1 sm:flex-initial">
+              <span className="text-[10px] sm:text-xs text-blue-600 dark:text-blue-400 block font-mono font-bold">{currentCommissariat.code}</span>
+              <span className="text-xs sm:text-sm font-bold truncate block max-w-[200px] sm:max-w-none">{currentCommissariat.nom}</span>
             </div>
           )}
 
-          <button
-            onClick={handleLogout}
-            title="Déconnexion"
-            className="flex items-center gap-2 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/30 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all"
-          >
-            <LogOut className="w-4 h-4" />
-            <span className="hidden sm:inline">Déconnexion</span>
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Bouton Toggle Dark/Light Mode */}
+            <button
+              onClick={toggleTheme}
+              title="Changer de mode (Clair / Sombre)"
+              className="p-2.5 bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 rounded-xl transition-all"
+            >
+              {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
+            </button>
+
+            {/* Bouton Déconnexion */}
+            <button
+              onClick={handleLogout}
+              title="Déconnexion"
+              className="flex items-center justify-center gap-2 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/30 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all shrink-0"
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="hidden sm:inline">Déconnexion</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -364,7 +371,6 @@ export default function CommissaireDashboard() {
                       </span>
                     )}
 
-                    {/* Bouton de Suppression / Désaffectation */}
                     <button
                       onClick={() => handleDeleteAgent(agent)}
                       disabled={deletingId === agent.id}
@@ -386,10 +392,8 @@ export default function CommissaireDashboard() {
 
       </div>
 
-      {/* SECTION DU BAS : ONGLETS DÉCLARATIONS DE VOLS & RETROUVÉS */}
+      {/* SECTION DU BAS : DÉCLARATIONS DE VOLS & RETROUVÉS */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 space-y-6 shadow-sm dark:shadow-none">
-        
-        {/* En-tête des Onglets */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
           <div>
             <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -432,7 +436,7 @@ export default function CommissaireDashboard() {
           </div>
         </div>
 
-        {/* CONTENU DE L'ONGLET 1 : DÉCLARATIONS DE VOLS */}
+        {/* ONGLET 1 : DÉCLARATIONS DE VOLS */}
         {activeTab === 'vols' && (
           <div className="space-y-3">
             {loadingDeclarations ? (
@@ -455,10 +459,10 @@ export default function CommissaireDashboard() {
                     <div className="flex justify-between items-start">
                       <div>
                         <span className="text-xs font-mono font-bold bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800 px-2.5 py-1 rounded-lg">
-                          {item.immatriculation || item.plaque || 'SANS PLAQUE'}
+                          {item.plate_number || 'SANS PLAQUE'}
                         </span>
                         <h3 className="text-sm font-bold text-slate-900 dark:text-white mt-2">
-                          {item.marque} {item.modele}
+                          {item.brand} {item.model}
                         </h3>
                       </div>
                       <span className="text-[10px] bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20 px-2 py-0.5 rounded-full font-mono flex items-center gap-1">
@@ -467,20 +471,17 @@ export default function CommissaireDashboard() {
                     </div>
 
                     <div className="text-xs space-y-1 text-slate-600 dark:text-slate-400 border-t border-slate-200 dark:border-slate-900 pt-2">
-                      <p><strong className="text-slate-700 dark:text-slate-300">Châssis :</strong> {item.numero_chassis || item.chassis || 'N/C'}</p>
-                      <p><strong className="text-slate-700 dark:text-slate-300">Couleur :</strong> {item.couleur || 'N/C'}</p>
-                      <p><strong className="text-slate-700 dark:text-slate-300">Propriétaire :</strong> {item.nom_proprietaire || item.proprietaire || 'N/C'}</p>
-                      {item.telephone_proprietaire && (
-                        <p><strong className="text-slate-700 dark:text-slate-300">Contact :</strong> {item.telephone_proprietaire}</p>
-                      )}
+                      <p><strong className="text-slate-700 dark:text-slate-300">N° de PV :</strong> <span className="font-mono text-blue-500">{item.report_number || 'N/C'}</span></p>
+                      <p><strong className="text-slate-700 dark:text-slate-300">Châssis (VIN) :</strong> <span className="font-mono">{item.vin || 'N/C'}</span></p>
+                      <p><strong className="text-slate-700 dark:text-slate-300">Couleur :</strong> {item.color || 'N/C'}</p>
+                      <p><strong className="text-slate-700 dark:text-slate-300">Propriétaire :</strong> {item.owner_name || 'N/C'}</p>
                     </div>
 
                     <div className="flex justify-between items-center text-[11px] text-slate-500 pt-2 border-t border-slate-200 dark:border-slate-900">
-                      <span className="flex items-center gap-1">
+                      <span className="flex items-center gap-1 font-mono">
                         <Calendar className="w-3 h-3" />
-                        {new Date(item.created_at).toLocaleDateString('fr-FR')}
+                        Volé le : {item.stolen_date || new Date(item.created_at).toLocaleDateString('fr-FR')}
                       </span>
-                      {item.agent_nom && <span>Par: {item.agent_nom}</span>}
                     </div>
                   </div>
                 ))}
@@ -489,7 +490,7 @@ export default function CommissaireDashboard() {
           </div>
         )}
 
-        {/* CONTENU DE L'ONGLET 2 : DÉCLARÉS RETROUVÉS */}
+        {/* ONGLET 2 : DÉCLARÉS RETROUVÉS */}
         {activeTab === 'retrouves' && (
           <div className="space-y-3">
             {loadingDeclarations ? (
@@ -512,10 +513,10 @@ export default function CommissaireDashboard() {
                     <div className="flex justify-between items-start">
                       <div>
                         <span className="text-xs font-mono font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 px-2.5 py-1 rounded-lg">
-                          {item.immatriculation || item.plaque || 'SANS PLAQUE'}
+                          {item.plate_number || 'SANS PLAQUE'}
                         </span>
                         <h3 className="text-sm font-bold text-slate-900 dark:text-white mt-2">
-                          {item.marque} {item.modele}
+                          {item.brand} {item.model}
                         </h3>
                       </div>
                       <span className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-mono flex items-center gap-1">
@@ -524,15 +525,15 @@ export default function CommissaireDashboard() {
                     </div>
 
                     <div className="text-xs space-y-1 text-slate-600 dark:text-slate-400 border-t border-slate-200 dark:border-slate-900 pt-2">
-                      <p><strong className="text-slate-700 dark:text-slate-300">Châssis :</strong> {item.numero_chassis || item.chassis || 'N/C'}</p>
-                      <p><strong className="text-slate-700 dark:text-slate-300">Couleur :</strong> {item.couleur || 'N/C'}</p>
-                      <p><strong className="text-slate-700 dark:text-slate-300">Propriétaire :</strong> {item.nom_proprietaire || item.proprietaire || 'N/C'}</p>
+                      <p><strong className="text-slate-700 dark:text-slate-300">N° de PV :</strong> <span className="font-mono text-blue-500">{item.report_number || 'N/C'}</span></p>
+                      <p><strong className="text-slate-700 dark:text-slate-300">Châssis (VIN) :</strong> <span className="font-mono">{item.vin || 'N/C'}</span></p>
+                      <p><strong className="text-slate-700 dark:text-slate-300">Propriétaire :</strong> {item.owner_name || 'N/C'}</p>
                     </div>
 
                     <div className="flex justify-between items-center text-[11px] text-slate-500 pt-2 border-t border-slate-200 dark:border-slate-900">
-                      <span className="flex items-center gap-1">
+                      <span className="flex items-center gap-1 font-mono">
                         <Calendar className="w-3 h-3" />
-                        {new Date(item.updated_at || item.created_at).toLocaleDateString('fr-FR')}
+                        Enregistré le : {new Date(item.created_at).toLocaleDateString('fr-FR')}
                       </span>
                       <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Dossier Clôturé</span>
                     </div>

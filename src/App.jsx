@@ -6,7 +6,7 @@ import { Sun, Moon } from 'lucide-react';
 import LoginScreen from './pages/LoginScreen';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import CommissaireDashboard from './pages/CommissaireDashboard';
-import AgentBureauDashboard from './pages/AgentBureauDashboard';
+import { AgentBureauDashboard } from './pages/AgentBureauDashboard';
 import AgentTerrainDashboard from './pages/AgentTerrainDashboard';
 
 export default function App() {
@@ -105,7 +105,9 @@ export default function App() {
   }
 
   const renderDashboard = () => {
-    const role = profile?.role?.toLowerCase();
+    // Normalisation du rôle : passage en minuscules, suppression des espaces inutiles et remplacement des espaces par des underscores
+    const rawRole = profile?.role;
+    const role = rawRole ? String(rawRole).toLowerCase().trim().replace(/\s+/g, '_') : null;
 
     const commonProps = {
       user: session.user,
@@ -126,10 +128,13 @@ export default function App() {
       default:
         return (
           <div className="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-4">
-            <h2 className="text-xl font-bold text-red-500">Rôle non attribué</h2>
+            <h2 className="text-xl font-bold text-red-500">Rôle non attribué ou non reconnu</h2>
             <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md">
-              Votre compte ({session.user.email}) ne possède pas encore de rôle configuré. Veuillez contacter l'administrateur.
+              Votre compte ({session?.user?.email}) ne possède pas un rôle valide configuré.
             </p>
+            <div className="text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-xl font-mono text-slate-600 dark:text-slate-400">
+              Rôle lu dans la base de données : <span className="font-bold text-blue-500">{JSON.stringify(rawRole)}</span>
+            </div>
             <button
               type="button"
               onClick={() => supabase.auth.signOut()}
@@ -144,7 +149,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col justify-between bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-200">
-      <main className="flex-1">
+      <main className="flex-1 flex flex-col">
         {renderDashboard()}
       </main>
 

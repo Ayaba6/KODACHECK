@@ -1,49 +1,44 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { ShieldCheck, Lock, Mail, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { ShieldCheck, Lock, UserCheck, AlertCircle, Eye, EyeOff } from 'lucide-react';
 
 export default function LoginScreen() {
-  const [identifier, setIdentifier] = useState(''); // Email OU Badge Number
+  const [badgeNumber, setBadgeNumber] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleLogin = async (e) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
-    let emailToUse = identifier.trim();
+    // Extraction propre du matricule (au cas où l'agent tape l'email entier par habitude)
+    let rawBadge = badgeNumber.trim().toUpperCase();
+    if (rawBadge.includes('@')) {
+      rawBadge = rawBadge.split('@')[0];
+    }
+
+    if (!rawBadge) {
+      setError('Veuillez saisir votre matricule.');
+      setLoading(false);
+      return;
+    }
+
+    // Reconstruction standardisée de l'identifiant Supabase
+    const formattedEmail = `${rawBadge}@kodacheck.com`;
 
     try {
-      // Si l'identifiant ne contient pas '@', on cherche le badge_number dans profiles
-      if (!emailToUse.includes('@')) {
-        // 1. On récupère l'ID utilisateur lié à ce badge_number
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('badge_number', emailToUse) // Utilisation de badge_number au lieu de matricule
-          .maybeSingle();
-
-        if (profileError || !profile) {
-          throw new Error("Matricule non reconnu.");
-        }
-
-        // 2. Si votre table profiles n'a pas la colonne email,
-        // on tente la connexion directement ou via l'email renseigné
-        // Si vous avez besoin de récupérer l'email depuis auth, assurez-vous d'utiliser un identifiant email valide.
-      }
-
-      // Connexion via Supabase Auth
       const { error: authError } = await supabase.auth.signInWithPassword({
-        email: emailToUse,
+        email: formattedEmail,
         password,
       });
 
-      if (authError) throw authError;
-
-    } catch (err) {
+      if (authError) {
+        throw new Error('Matricule ou mot de passe incorrect.');
+      }
+    } catch (err: any) {
       setError(err.message || 'Identifiants incorrects ou accès non autorisé.');
     } finally {
       setLoading(false);
@@ -65,7 +60,7 @@ export default function LoginScreen() {
           </p>
         </div>
 
-        {/* Alerte d'erreur */}
+        {/* Message d'erreur */}
         {error && (
           <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-3 text-red-600 dark:text-red-400 text-sm">
             <AlertCircle className="w-5 h-5 shrink-0" />
@@ -77,17 +72,18 @@ export default function LoginScreen() {
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold uppercase mb-2 text-slate-700 dark:text-slate-300">
-              Adresse Email / Matricule Agent
+              Matricule Agent
             </label>
             <div className="relative">
-              <Mail className="w-5 h-5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <UserCheck className="w-5 h-5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 required
-                value={identifier}
-                onChange={(e) => setIdentifier(e.target.value)}
-                placeholder="agent@kodacheck.com ou MAT-56B347"
-                className="w-full bg-slate-100 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg py-3 pl-10 pr-4 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                autoCapitalize="characters"
+                value={badgeNumber}
+                onChange={(e) => setBadgeNumber(e.target.value)}
+                placeholder="Ex: MAT-56B347"
+                className="w-full bg-slate-100 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg py-3 pl-10 pr-4 text-slate-900 dark:text-white uppercase placeholder:normal-case placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono"
               />
             </div>
           </div>

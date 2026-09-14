@@ -5,20 +5,20 @@ import { syncVehiclesWithLocalDB } from '../lib/syncService';
 import { 
   Search, Camera, CheckCircle, LogOut, ShieldAlert, Wifi, WifiOff, 
   RefreshCw, Bell, X, List, ChevronRight, AlertTriangle, Shield, User, Sun, Moon,
-  Car, Hash
+  Car, Hash, Building2
 } from 'lucide-react';
 import CameraScanner from '../components/CameraScanner';
 
 // ==========================================
 // 1. CUSTOM HOOK
 // ==========================================
-function useAgentDashboard(searchTerm) {
+function useAgentDashboard(searchTerm: string) {
   const [loading, setLoading] = useState(false);
-  const [recentStolen, setRecentStolen] = useState([]);
+  const [recentStolen, setRecentStolen] = useState<any[]>([]);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSync, setLastSync] = useState(localStorage.getItem('last_sync_time') || 'Jamais');
-  const [realtimeAlert, setRealtimeAlert] = useState(null);
+  const [realtimeAlert, setRealtimeAlert] = useState<any | null>(null);
 
   const loadRecentStolen = useCallback(async (query = searchTerm) => {
     setLoading(true);
@@ -40,18 +40,18 @@ function useAgentDashboard(searchTerm) {
         if (!error && data) setRecentStolen(data);
       } else {
         const allLocal = await localDb.stolen_vehicles.toArray();
-        const stolenOnly = allLocal.filter((v) => v.status === 'STOLEN');
+        const stolenOnly = allLocal.filter((v: any) => v.status === 'STOLEN');
 
         if (cleanQuery) {
           const filtered = stolenOnly.filter(
-            (v) =>
+            (v: any) =>
               (v.plate_number && v.plate_number.toUpperCase().includes(cleanQuery)) ||
               (v.vin && v.vin.toUpperCase().includes(cleanQuery)) ||
               (v.owner_name && v.owner_name.toUpperCase().includes(cleanQuery))
           );
           setRecentStolen(filtered.slice(0, 50));
         } else {
-          stolenOnly.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+          stolenOnly.sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
           setRecentStolen(stolenOnly.slice(0, 50));
         }
       }
@@ -114,7 +114,7 @@ function useAgentDashboard(searchTerm) {
 // ==========================================
 // 2. COMPOSANT FICHE VÉHICULE DÉTAILLÉE
 // ==========================================
-function VehicleCardDetail({ vehicle, isDarkMode, onClose }) {
+function VehicleCardDetail({ vehicle, isDarkMode, onClose }: { vehicle: any; isDarkMode: boolean; onClose?: () => void }) {
   if (!vehicle) {
     return (
       <div className={`h-full min-h-[220px] flex flex-col items-center justify-center border rounded-2xl p-6 text-center border-dashed ${
@@ -176,7 +176,7 @@ function VehicleCardDetail({ vehicle, isDarkMode, onClose }) {
           <div className={`p-2.5 rounded-xl border flex items-center gap-2.5 ${isDarkMode ? 'bg-slate-800/50 border-slate-700/60' : 'bg-slate-50 border-slate-200'}`}>
             <Hash className="w-4 h-4 text-blue-500 shrink-0" />
             <div className="min-w-0">
-              <span className="text-[9px] uppercase font-bold text-slate-400 block">VIN</span>
+              <span className="text-[9px] uppercase font-bold text-slate-400 block">VIN / N° Châssis</span>
               <span className="font-mono font-bold text-[11px] truncate block">{vehicle.vin}</span>
             </div>
           </div>
@@ -189,44 +189,116 @@ function VehicleCardDetail({ vehicle, isDarkMode, onClose }) {
 // ==========================================
 // 3. COMPOSANT PRINCIPAL
 // ==========================================
-export default function AgentterrainDashboard() {
+export default function AgentterrainDashboard({ onLogout }: { onLogout?: () => void }) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedVehicle, setSelectedVehicle] = useState(null);
+  const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
   const [showCamera, setShowCamera] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
+  const [agentProfile, setAgentProfile] = useState<any | null>(null);
 
   const {
     loading,
     recentStolen,
     isOnline,
     isSyncing,
+    realtimeAlert,
+    setRealtimeAlert,
     handleSync
   } = useAgentDashboard(searchTerm);
+
+  useEffect(() => {
+    fetchAgentProfile();
+  }, []);
+
+  const fetchAgentProfile = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data } = await supabase
+        .from('profiles')
+        .select('full_name, badge_number, commissariats(nom, code)')
+        .eq('id', user.id)
+        .single();
+
+      if (data) setAgentProfile(data);
+    } catch (err) {
+      console.error('Erreur chargement profil :', err);
+    }
+  };
+
+  const handleSignOut = async () => {
+    if (onLogout) {
+      onLogout();
+    } else {
+      await supabase.auth.signOut();
+      window.location.reload();
+    }
+  };
 
   return (
     <div className={`min-h-screen flex flex-col font-sans transition-colors duration-200 ${
       isDarkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900'
     }`}>
       
+      {/* Alerte Temps Réel (Toast) */}
+      {realtimeAlert && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md bg-red-600 text-white p-3.5 rounded-2xl shadow-2xl border border-red-400 flex items-center justify-between gap-3 animate-bounce">
+          <div className="flex items-center gap-2.5">
+            <Bell className="w-5 h-5 shrink-0 animate-pulse" />
+            <div className="text-xs">
+              <p className="font-black uppercase">NOUVELLE ALERTE VOL !</p>
+              <p className="font-mono font-bold text-amber-200">Plaque: {realtimeAlert.plate_number}</p>
+            </div>
+          </div>
+          <button 
+            onClick={() => {
+              setSelectedVehicle(realtimeAlert);
+              setRealtimeAlert(null);
+            }} 
+            className="px-2.5 py-1 bg-white text-red-600 rounded-lg text-xs font-black shadow hover:bg-slate-100 transition-colors shrink-0"
+          >
+            VOIR
+          </button>
+        </div>
+      )}
+
       {/* Header compact */}
       <header className={`border-b px-4 py-2.5 sticky top-0 z-40 backdrop-blur-md ${
-        isDarkMode ? 'bg-slate-900/90 border-slate-800' : 'bg-white/90 border-slate-200'
+        isDarkMode ? 'bg-slate-900/90 border-slate-800' : 'bg-white/90 border-slate-200 shadow-sm'
       }`}>
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
-            <div className="p-1.5 bg-blue-600/10 border border-blue-500/20 rounded-lg text-blue-500">
+            <div className="p-1.5 bg-blue-600/10 border border-blue-500/20 rounded-lg text-blue-500 shrink-0">
               <Shield className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="font-black text-sm sm:text-base tracking-tight leading-none">KODACHECK</h1>
-              <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Espace Agent Terrain</p>
+              <div className="flex items-center gap-1.5">
+                <h1 className="font-black text-sm sm:text-base tracking-tight leading-none">KODACHECK</h1>
+                {agentProfile?.badge_number && (
+                  <span className="text-[9px] font-mono font-bold bg-blue-500/10 text-blue-500 px-1.5 py-0.5 rounded border border-blue-500/20">
+                    {agentProfile.badge_number}
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
+                <User className="w-3 h-3 inline" /> {agentProfile?.full_name || 'Agent Terrain'}
+                {agentProfile?.commissariats?.nom && (
+                  <>
+                    <span>•</span>
+                    <Building2 className="w-3 h-3 inline" /> {agentProfile.commissariats.nom}
+                  </>
+                )}
+              </p>
             </div>
           </div>
 
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => setIsDarkMode(!isDarkMode)}
-              className={`p-1.5 rounded-lg border ${isDarkMode ? 'bg-slate-800 border-slate-700 text-yellow-400' : 'bg-slate-100 border-slate-300 text-slate-700'}`}
+              className={`p-1.5 rounded-lg border transition-colors ${
+                isDarkMode ? 'bg-slate-800 border-slate-700 text-yellow-400' : 'bg-slate-100 border-slate-300 text-slate-700'
+              }`}
             >
               {isDarkMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
             </button>
@@ -241,15 +313,21 @@ export default function AgentterrainDashboard() {
               <button
                 onClick={handleSync}
                 disabled={isSyncing}
-                className={`p-1.5 rounded-lg border ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-300'}`}
+                className={`p-1.5 rounded-lg border transition-colors ${
+                  isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-100 border-slate-300 text-slate-700'
+                }`}
+                title="Synchroniser la base locale"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-500' : ''}`} />
               </button>
             )}
 
             <button
-              onClick={() => supabase.auth.signOut()}
-              className={`p-1.5 rounded-lg border text-red-500 ${isDarkMode ? 'border-slate-800' : 'border-slate-200'}`}
+              onClick={handleSignOut}
+              className={`p-1.5 rounded-lg border text-red-500 hover:bg-red-500/10 transition-colors ${
+                isDarkMode ? 'border-slate-800' : 'border-slate-200'
+              }`}
+              title="Déconnexion"
             >
               <LogOut className="w-3.5 h-3.5" />
             </button>
@@ -294,10 +372,10 @@ export default function AgentterrainDashboard() {
 
                 <button
                   onClick={() => setShowCamera(true)}
-                  className={`p-2 rounded-xl border text-blue-500 hover:bg-blue-500/10 ${
+                  className={`p-2 rounded-xl border text-blue-500 hover:bg-blue-500/10 transition-colors ${
                     isDarkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-300'
                   }`}
-                  title="Scanner"
+                  title="Scanner la plaque"
                 >
                   <Camera className="w-4 h-4" />
                 </button>
@@ -311,7 +389,7 @@ export default function AgentterrainDashboard() {
 
           </div>
 
-          {/* ================= COLONNE DROITE (Cartes Ultraminces / Condensées) ================= */}
+          {/* ================= COLONNE DROITE (Cartes Condensées) ================= */}
           <div className="lg:col-span-7 space-y-2">
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-1.5 font-bold text-xs">
