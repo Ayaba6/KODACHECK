@@ -10,7 +10,7 @@ import {
 import CameraScanner from '../components/CameraScanner';
 
 // ==========================================
-// 1. CUSTOM HOOK
+// 1. CUSTOM HOOK AMÉLIORÉ (Recherche & Temps Réel)
 // ==========================================
 function useAgentDashboard(searchTerm: string) {
   const [loading, setLoading] = useState(false);
@@ -18,7 +18,7 @@ function useAgentDashboard(searchTerm: string) {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSync, setLastSync] = useState(localStorage.getItem('last_sync_time') || 'Jamais');
-  const [realtimeAlert, setRealtimeAlert] = useState<any | null>(null);
+  const [realtimeAlerts, setRealtimeAlerts] = useState<any[]>([]);
 
   const loadRecentStolen = useCallback(async (query = searchTerm) => {
     setLoading(true);
@@ -28,32 +28,38 @@ function useAgentDashboard(searchTerm: string) {
       if (navigator.onLine) {
         let req = supabase
           .from('stolen_vehicles')
-          .select('*')
+          .select(`
+            *,
+            commissariats:commissariat_id (
+              nom,
+              code
+            )
+          `)
           .eq('status', 'STOLEN')
           .order('created_at', { ascending: false });
 
         if (cleanQuery) {
-          req = req.or(`plate_number.ilike.%${cleanQuery}%,vin.ilike.%${cleanQuery}%,owner_name.ilike.%${cleanQuery}%`);
+          req = req.or(`plate_number.ilike.%${cleanQuery}%,vin.ilike.%${cleanQuery}%,owner_name.ilike.%${cleanQuery}%,report_number.ilike.%${cleanQuery}%`);
         }
 
         const { data, error } = await req.limit(50);
         if (!error && data) setRecentStolen(data);
       } else {
+        // Mode Hors-ligne via Dexie (localDb)
         const allLocal = await localDb.stolen_vehicles.toArray();
-        const stolenOnly = allLocal.filter((v: any) => v.status === 'STOLEN');
+        let stolenOnly = allLocal.filter((v: any) => v.status === 'STOLEN');
 
         if (cleanQuery) {
-          const filtered = stolenOnly.filter(
+          stolenOnly = stolenOnly.filter(
             (v: any) =>
               (v.plate_number && v.plate_number.toUpperCase().includes(cleanQuery)) ||
               (v.vin && v.vin.toUpperCase().includes(cleanQuery)) ||
-              (v.owner_name && v.owner_name.toUpperCase().includes(cleanQuery))
+              (v.owner_name && v.owner_name.toUpperCase().includes(cleanQuery)) ||
+              (v.report_number && v.report_number.toUpperCase().includes(cleanQuery))
           );
-          setRecentStolen(filtered.slice(0, 50));
-        } else {
-          stolenOnly.sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-          setRecentStolen(stolenOnly.slice(0, 50));
         }
+        stolenOnly.sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+        setRecentStolen(stolenOnly.slice(0, 50));
       }
     } catch (err) {
       console.error('Erreur chargement données :', err);
@@ -74,15 +80,28 @@ function useAgentDashboard(searchTerm: string) {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
+    // Écoute Supabase Realtime globale pour tous les commissariats
     const channel = supabase
-      .channel('realtime_stolen_vehicles')
+      .channel('realtime_stolen_vehicles_global')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'stolen_vehicles' },
         async (payload) => {
           const newVehicle = payload.new;
           if (newVehicle.status === 'STOLEN') {
-            setRealtimeAlert(newVehicle);
+            // Récupérer le nom de l'unité émettrice pour enrichir l'alerte
+            const { data: commData } = await supabase
+              .from('commissariats')
+              .select('nom, code')
+              .eq('id', newVehicle.commissariat_id)
+              .single();
+
+            const enrichedVehicle = {
+              ...newVehicle,
+              commissariats: commData || { nom: 'Unité Nationale', code: 'NAT' }
+            };
+
+            setRealtimeAlerts((prev) => [enrichedVehicle, ...prev]);
             await localDb.stolen_vehicles.put(newVehicle);
             loadRecentStolen(searchTerm);
           }
@@ -108,7 +127,7 @@ function useAgentDashboard(searchTerm: string) {
     setIsSyncing(false);
   };
 
-  return { loading, recentStolen, isOnline, isSyncing, lastSync, realtimeAlert, setRealtimeAlert, handleSync };
+  return { loading, recentStolen, isOnline, isSyncing, lastSync, realtimeAlerts, setRealtimeAlerts, handleSync };
 }
 
 // ==========================================
@@ -139,13 +158,15 @@ function VehicleCardDetail({ vehicle, isDarkMode, onClose }: { vehicle: any; isD
         </button>
       )}
 
-      <div className="flex items-center gap-2.5 text-red-500 mb-3">
-        <div className="p-2 bg-red-500/10 border border-red-500/20 rounded-xl">
-          <ShieldAlert className="w-5 h-5" />
-        </div>
-        <div>
-          <h3 className="text-sm font-black uppercase tracking-tight">ENGIN SIGNALÉ VOLÉ</h3>
-          <p className="text-[11px] font-mono text-red-400">PV N° : {vehicle.report_number || 'N/A'}</p>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2.5 text-red-500">
+          <div className="p-2 bg-red-500/10 border border-red-500/20 rounded-xl">
+            <ShieldAlert className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-black uppercase tracking-tight">ENGIN SIGNALÉ VOLÉ</h3>
+            <p className="text-[11px] font-mono text-red-400">PV N° : {vehicle.report_number || 'N/A'}</p>
+          </div>
         </div>
       </div>
 
@@ -181,6 +202,16 @@ function VehicleCardDetail({ vehicle, isDarkMode, onClose }: { vehicle: any; isD
             </div>
           </div>
         )}
+
+        {vehicle.commissariats?.nom && (
+          <div className={`p-2.5 rounded-xl border flex items-center gap-2.5 ${isDarkMode ? 'bg-slate-800/50 border-slate-700/60' : 'bg-slate-50 border-slate-200'}`}>
+            <Building2 className="w-4 h-4 text-blue-500 shrink-0" />
+            <div className="min-w-0">
+              <span className="text-[9px] uppercase font-bold text-slate-400 block">Service Déclarant</span>
+              <span className="font-semibold text-xs truncate block">{vehicle.commissariats.nom}</span>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -195,14 +226,15 @@ export default function AgentterrainDashboard({ onLogout }: { onLogout?: () => v
   const [showCamera, setShowCamera] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [agentProfile, setAgentProfile] = useState<any | null>(null);
+  const [showAlertsDrawer, setShowAlertsDrawer] = useState(false);
 
   const {
     loading,
     recentStolen,
     isOnline,
     isSyncing,
-    realtimeAlert,
-    setRealtimeAlert,
+    realtimeAlerts,
+    setRealtimeAlerts,
     handleSync
   } = useAgentDashboard(searchTerm);
 
@@ -241,25 +273,37 @@ export default function AgentterrainDashboard({ onLogout }: { onLogout?: () => v
       isDarkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900'
     }`}>
       
-      {/* Alerte Temps Réel (Toast) */}
-      {realtimeAlert && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md bg-red-600 text-white p-3.5 rounded-2xl shadow-2xl border border-red-400 flex items-center justify-between gap-3 animate-bounce">
-          <div className="flex items-center gap-2.5">
-            <Bell className="w-5 h-5 shrink-0 animate-pulse" />
-            <div className="text-xs">
-              <p className="font-black uppercase">NOUVELLE ALERTE VOL !</p>
-              <p className="font-mono font-bold text-amber-200">Plaque: {realtimeAlert.plate_number}</p>
+      {/* Notifications Flottantes (Toasts / Drawer en temps réel) */}
+      {realtimeAlerts.length > 0 && (
+        <div className="fixed top-16 right-4 z-50 w-80 max-w-[90vw] space-y-2">
+          {realtimeAlerts.slice(0, 3).map((alert, idx) => (
+            <div key={alert.id || idx} className="bg-red-600 text-white p-3 rounded-2xl shadow-2xl border border-red-400 flex items-center justify-between gap-2 animate-bounce">
+              <div className="flex items-center gap-2">
+                <Bell className="w-5 h-5 shrink-0 animate-pulse text-amber-300" />
+                <div className="text-xs">
+                  <p className="font-black uppercase">ALERTE VOL ({alert.commissariats?.code || 'NAT'})</p>
+                  <p className="font-mono font-bold text-amber-200">Plaque: {alert.plate_number}</p>
+                </div>
+              </div>
+              <div className="flex gap-1">
+                <button 
+                  onClick={() => {
+                    setSelectedVehicle(alert);
+                    setRealtimeAlerts(prev => prev.filter(a => a.id !== alert.id));
+                  }} 
+                  className="px-2 py-1 bg-white text-red-600 rounded-lg text-[10px] font-black shadow hover:bg-slate-100 transition-colors"
+                >
+                  VOIR
+                </button>
+                <button 
+                  onClick={() => setRealtimeAlerts(prev => prev.filter(a => a.id !== alert.id))}
+                  className="p-1 text-white/80 hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
-          </div>
-          <button 
-            onClick={() => {
-              setSelectedVehicle(realtimeAlert);
-              setRealtimeAlert(null);
-            }} 
-            className="px-2.5 py-1 bg-white text-red-600 rounded-lg text-xs font-black shadow hover:bg-slate-100 transition-colors shrink-0"
-          >
-            VOIR
-          </button>
+          ))}
         </div>
       )}
 
@@ -294,6 +338,22 @@ export default function AgentterrainDashboard({ onLogout }: { onLogout?: () => v
           </div>
 
           <div className="flex items-center gap-1.5">
+            {/* Bouton Notification Drawer */}
+            <button
+              onClick={() => setShowAlertsDrawer(!showAlertsDrawer)}
+              className={`relative p-1.5 rounded-lg border transition-colors ${
+                isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-100 border-slate-300 text-slate-700'
+              }`}
+              title="Historique des alertes en direct"
+            >
+              <Bell className="w-3.5 h-3.5" />
+              {realtimeAlerts.length > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[9px] font-black w-3.5 h-3.5 rounded-full flex items-center justify-center">
+                  {realtimeAlerts.length}
+                </span>
+              )}
+            </button>
+
             <button
               onClick={() => setIsDarkMode(!isDarkMode)}
               className={`p-1.5 rounded-lg border transition-colors ${
@@ -353,7 +413,7 @@ export default function AgentterrainDashboard({ onLogout }: { onLogout?: () => v
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Plaque, VIN, Nom..."
+                    placeholder="Plaque, VIN, N° PV, Nom..."
                     className={`w-full border rounded-xl py-2 pl-9 pr-7 font-mono text-xs uppercase focus:outline-none focus:ring-1 focus:ring-blue-500 ${
                       isDarkMode 
                         ? 'bg-slate-950 border-slate-800 text-white placeholder-slate-600' 
@@ -394,7 +454,7 @@ export default function AgentterrainDashboard({ onLogout }: { onLogout?: () => v
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-1.5 font-bold text-xs">
                 <List className="w-3.5 h-3.5 text-blue-500" />
-                <span>Signalements Volés</span>
+                <span>Registre National (Signalements Volés)</span>
               </div>
               <span className={`text-[10px] font-mono px-2 py-0.5 rounded-md border font-bold ${
                 isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-200 border-slate-300 text-slate-700'
@@ -432,7 +492,6 @@ export default function AgentterrainDashboard({ onLogout }: { onLogout?: () => v
                             : 'bg-white border-slate-200 hover:border-slate-300 shadow-sm'
                       }`}
                     >
-                      {/* Badge Alerte & Plaque */}
                       <div className="flex items-center gap-2.5 min-w-0">
                         <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
                         
@@ -440,7 +499,6 @@ export default function AgentterrainDashboard({ onLogout }: { onLogout?: () => v
                           {vehicle.plate_number}
                         </span>
 
-                        {/* Modèle & Propriétaire Inline */}
                         <div className="hidden sm:flex items-center gap-2 text-xs truncate border-l border-slate-700/40 pl-2.5">
                           <span className={`font-semibold truncate ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
                             {vehicle.brand} {vehicle.model}
@@ -453,7 +511,6 @@ export default function AgentterrainDashboard({ onLogout }: { onLogout?: () => v
                         </div>
                       </div>
 
-                      {/* Info Mobile uniquement quand réduit */}
                       <div className="sm:hidden min-w-0 text-right pr-1">
                         <p className={`text-[11px] font-semibold truncate ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
                           {vehicle.brand} {vehicle.model}
