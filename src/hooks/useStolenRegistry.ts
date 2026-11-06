@@ -131,5 +131,15 @@ export function useStolenRegistry(searchTerm: string, onNewAlert?: (v: StolenVeh
     };
   }, [search]);
 
-  return { online, results, loading, syncing, lastSync, localCount, sync };
+  /** Retire un engin de la copie locale (ex. déclaré retrouvé) puis relance la recherche. */
+  const forget = useCallback(
+    async (id: string) => {
+      await localDb.stolen_vehicles.delete(id).catch(() => undefined);
+      setLocalCount((n) => (n === null ? n : Math.max(0, n - 1)));
+      await search(termRef.current);
+    },
+    [search],
+  );
+
+  return { online, results, loading, syncing, lastSync, localCount, sync, forget };
 }

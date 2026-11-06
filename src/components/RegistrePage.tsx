@@ -6,7 +6,8 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import type { StolenVehicle, VehicleStatus } from '../types';
 import { Alert, Button, Card, CardHeader, EmptyState, Input, PlateBadge, Skeleton, Tabs } from './ui';
-import { RecoveryModal, VehicleDetailsModal } from './vehicles/VehicleModals';
+import { RecoveryModal, VehicleDetailsModal, type RecoveryDetails } from './vehicles/VehicleModals';
+import { markVehicleRecovered } from '../lib/recovery';
 import { printVehicleReceipt } from './vehicles/printReceipt';
 
 /** Registre national : consultation, recherche, restitution et impression des fiches. */
@@ -37,23 +38,23 @@ export function RegistrePage() {
     void fetchVehicles();
   }, [fetchVehicles]);
 
-  const handleConfirmRecovery = async (station: string) => {
+  const handleConfirmRecovery = async (details: RecoveryDetails) => {
     if (!toRecover) return;
-    const recovered_date = new Date().toISOString().slice(0, 10);
-    const { error: err } = await supabase
-      .from('stolen_vehicles')
-      .update({ status: 'RECOVERED', recovering_station: station, recovered_date })
-      .eq('id', toRecover.id);
-
-    if (err) {
-      toast.error("Impossible de marquer l'engin comme retrouvé", getErrorMessage(err));
+    try {
+      await markVehicleRecovered(toRecover.id, details);
+    } catch (err) {
+      toast.error("Impossible de déclarer l'engin retrouvé", getErrorMessage(err));
       return;
     }
 
-    const patch = { status: 'RECOVERED' as const, recovering_station: station, recovered_date };
+    const patch = {
+      status: 'RECOVERED' as const,
+      recovering_station: details.station,
+      recovered_date: new Date().toISOString(),
+    };
     setVehicles((list) => list.map((v) => (v.id === toRecover.id ? { ...v, ...patch } : v)));
     setSelected((v) => (v?.id === toRecover.id ? { ...v, ...patch } : v));
-    toast.success('Engin marqué comme retrouvé', `${toRecover.plate_number ?? vehicleLabel(toRecover)} a été retiré des avis de recherche.`);
+    toast.success('Engin déclaré retrouvé', `${toRecover.plate_number ?? vehicleLabel(toRecover)} a été retiré des avis de recherche et inscrit au journal.`);
     setToRecover(null);
   };
 

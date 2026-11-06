@@ -33,6 +33,7 @@ echo "Visiteur non connecté :"
 lecture stolen_vehicles 0
 lecture profiles 0
 lecture commissariats "tous (liste publique)"
+lecture recovery_log 0
 ecriture stolen_vehicles "refusée"
 ecriture commissariats "refusée"
 ecriture profiles "refusée"
@@ -43,9 +44,9 @@ resp=$(curl -s --max-time 20 -X POST "$URL/rest/v1/rpc/declare_stolen_vehicle" "
 echo "  réponse : $(echo "$resp" | grep -o '"message":"[^"]*"' | cut -d'"' -f4)  (attendu : « Indiquez la plaque ou le numéro de châssis. »)"
 
 echo "Fonctions réservées aux comptes connectés :"
-for fn in set_account_active remove_agent_from_commissariat; do
+for fn in set_account_active remove_agent_from_commissariat mark_vehicle_recovered; do
   resp=$(curl -s --max-time 20 -X POST "$URL/rest/v1/rpc/$fn" "${H[@]}" -H "Content-Type: application/json" \
-    -d '{"p_user_id":"00000000-0000-0000-0000-000000000000","p_active":false,"p_agent_id":"00000000-0000-0000-0000-000000000000"}')
+    -d '{"p_user_id":"00000000-0000-0000-0000-000000000000","p_active":false,"p_agent_id":"00000000-0000-0000-0000-000000000000","p_vehicle_id":"00000000-0000-0000-0000-000000000000"}')
   code=$(echo "$resp" | grep -o '"code":"[^"]*"' | head -1 | cut -d'"' -f4)
   case "$code" in
     42501) v="refusée" ;;
