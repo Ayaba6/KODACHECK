@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { cn, getErrorMessage, todayISO } from '../lib/utils';
 import { BRAND_OPTIONS, COLOR_OPTIONS, VEHICLE_BRANDS } from '../lib/vehicleCatalog';
 import type { Commissariat } from '../types';
+import { normalizePlateInput } from '../utils/plateUtils';
 import { Alert, Button, Card, Input, Select } from '../components/ui';
 
 /**
@@ -162,7 +163,7 @@ export default function PublicDeclarerPage({ onDone }: { onDone: () => void }) {
 
     const { error } = await supabase.from('stolen_vehicles').insert([
       {
-        plate_number: form.plate_number.trim().toUpperCase() || null,
+        plate_number: normalizePlateInput(form.plate_number) || null,
         vin: form.vin.trim().toUpperCase() || null,
         brand: form.brand,
         model: form.model.trim() || null,
@@ -257,7 +258,7 @@ export default function PublicDeclarerPage({ onDone }: { onDone: () => void }) {
           <fieldset className="space-y-4">
             <legend className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">L'engin</legend>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Input label="Plaque d'immatriculation" value={form.plate_number} onChange={(e) => update('plate_number', e.target.value.toUpperCase())} placeholder="11 RJ 8596" className="font-mono uppercase" error={errors.plate_number} />
+              <Input label="Plaque d'immatriculation" value={form.plate_number} onChange={(e) => update('plate_number', e.target.value.toUpperCase())} placeholder="0029 D1 08" className="font-mono uppercase" error={errors.plate_number} />
               <Input label="N° de châssis (VIN)" value={form.vin} onChange={(e) => update('vin', e.target.value.toUpperCase())} placeholder="Facultatif si plaque connue" className="font-mono uppercase" />
             </div>
             <div className="grid gap-4 sm:grid-cols-3">

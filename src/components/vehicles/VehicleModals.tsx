@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { AlertTriangle, Building2, CheckCircle2, MapPin, Phone, Printer, Tag, User } from 'lucide-react';
 import { formatDate, vehicleLabel } from '../../lib/utils';
+import { describePlate } from '../../utils/plateUtils';
 import type { StolenVehicle } from '../../types';
 import { Badge, Button, Input, Modal, PlateBadge } from '../ui';
 
@@ -51,6 +52,7 @@ interface VehicleDetailsModalProps {
 /** Fiche complète d'un engin (registre, résultats de recherche, alertes). */
 export function VehicleDetailsModal({ vehicle, onClose, onPrint, onMarkRecovered }: VehicleDetailsModalProps) {
   const recovered = vehicle?.status === 'RECOVERED';
+  const plateInfo = describePlate(vehicle?.plate_number);
 
   return (
     <Modal
@@ -92,6 +94,12 @@ export function VehicleDetailsModal({ vehicle, onClose, onPrint, onMarkRecovered
           <Section icon={<Tag className="h-4 w-4 text-brand-500" />} title="Engin">
             <InfoRow label="Marque & modèle">{vehicleLabel(vehicle)}</InfoRow>
             <InfoRow label="Couleur">{vehicle.color}</InfoRow>
+            {plateInfo && (
+              <>
+                <InfoRow label="Catégorie de plaque">{plateInfo.category}</InfoRow>
+                <InfoRow label="Région d'immatriculation">{plateInfo.region}</InfoRow>
+              </>
+            )}
             <div className="col-span-2">
               <InfoRow label="N° de châssis (VIN)" mono>
                 {vehicle.vin}

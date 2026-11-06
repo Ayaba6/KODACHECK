@@ -4,6 +4,7 @@ import { localDb } from '../lib/db';
 import { getLastSync, syncVehiclesWithLocalDB } from '../lib/syncService';
 import { sanitizeSearch, toIlikePattern } from '../lib/utils';
 import type { StolenVehicle } from '../types';
+import { extractSerial, isCompletePlate, normalizePlateInput, platesMatch } from '../utils/plateUtils';
 
 export function useOnlineStatus(): boolean {
   const [online, setOnline] = useState(navigator.onLine);
@@ -26,12 +27,15 @@ async function searchLocal(term: string): Promise<StolenVehicle[]> {
   const all = await localDb.stolen_vehicles.toArray();
   const needle = compact(term);
   const nameNeedle = term.toUpperCase();
+  const serial = isCompletePlate(term) ? null : extractSerial(term);
   return all
     .filter((v) => v.status !== 'RECOVERED')
     .filter(
       (v) =>
         !needle ||
         compact(v.plate_number).includes(needle) ||
+        platesMatch(v.plate_number, term) ||
+        (serial !== null && compact(v.plate_number).includes(serial)) ||
         compact(v.vin).includes(needle) ||
         compact(v.report_number).includes(needle) ||
         (v.owner_name ?? '').toUpperCase().includes(nameNeedle),
@@ -69,8 +73,12 @@ export function useStolenRegistry(searchTerm: string, onNewAlert?: (v: StolenVeh
           .order('created_at', { ascending: false })
           .limit(50);
         if (clean) {
-          const p = toIlikePattern(clean);
-          req = req.or(`plate_number.ilike.${p},vin.ilike.${p},owner_name.ilike.${p},report_number.ilike.${p}`);
+          const p = toIlikePattern(normalizePlateInput(clean));
+          const filters = [`plate_number.ilike.${p}`, `vin.ilike.${p}`, `owner_name.ilike.${p}`, `report_number.ilike.${p}`];
+          // Lecture partielle (« 4131 Y I ») : on cherche aussi par n° d'ordre pour ne pas rater l'engin
+          const serial = isCompletePlate(clean) ? null : extractSerial(clean);
+          if (serial) filters.push(`plate_number.ilike.%${serial}%`);
+          req = req.or(filters.join(','));
         }
         const { data, error } = await req;
         if (error) throw error;

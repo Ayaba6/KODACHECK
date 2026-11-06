@@ -1,9 +1,9 @@
 import { useCallback, useState } from 'react';
-import { Bell, Camera, CheckCircle2, ChevronRight, CloudOff, RefreshCw, Search, ShieldAlert, Wifi, X } from 'lucide-react';
+import { AlertTriangle, Bell, Camera, CheckCircle2, ChevronRight, CloudOff, HelpCircle, RefreshCw, Search, ShieldAlert, Wifi, X } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { useStolenRegistry } from '../hooks/useStolenRegistry';
 import { formatDate, vehicleLabel } from '../lib/utils';
-import { compactPlate } from '../utils/plateUtils';
+import { compactPlate, describePlate, extractSerial, isCompletePlate, platesMatch } from '../utils/plateUtils';
 import type { StolenVehicle } from '../types';
 import { DashboardLayout } from '../components/layout/DashboardLayout';
 import CameraScanner from '../components/CameraScanner';
@@ -25,7 +25,7 @@ function Verdict({ term, results, loading, reliable, onOpen }: { term: string; r
   const needle = compactPlate(term);
   if (needle.length < 4 || loading) return null;
 
-  const exact = results.find((v) => compactPlate(v.plate_number) === needle || compactPlate(v.vin) === needle);
+  const exact = results.find((v) => platesMatch(v.plate_number, term) || compactPlate(v.vin) === needle);
 
   if (exact) {
     return (
@@ -47,13 +47,58 @@ function Verdict({ term, results, loading, reliable, onOpen }: { term: string; r
     );
   }
 
+  // Un « aucun signalement » n'est affiché que pour une plaque complète (ou un n° de châssis) :
+  // sur une lecture partielle, l'absence de résultat ne prouve rien.
+  const complete = isCompletePlate(term) || (needle.length >= 11 && !/^\d+$/.test(needle));
+
+  if (!complete) {
+    const serial = extractSerial(term);
+    const candidates = serial ? results.filter((v) => compactPlate(v.plate_number).includes(serial)) : [];
+    if (candidates.length > 0) {
+      return (
+        <button
+          type="button"
+          onClick={() => onOpen(candidates[0])}
+          className="flex w-full animate-scale-in items-center gap-4 rounded-2xl bg-amber-500 p-4 text-left text-slate-950 shadow-lg shadow-amber-500/30"
+        >
+          <AlertTriangle className="h-10 w-10 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-lg font-extrabold uppercase tracking-tight">Correspondance possible</p>
+            <p className="text-sm">
+              Lecture incomplète. {candidates.length > 1 ? `${candidates.length} engins volés portent` : 'Un engin volé porte'} le n° {serial} :{' '}
+              <span className="font-mono font-bold">{candidates[0].plate_number}</span>. Comparez avec la plaque.
+            </p>
+          </div>
+          <ChevronRight className="h-5 w-5 shrink-0" />
+        </button>
+      );
+    }
+    return (
+      <div className="flex animate-scale-in items-center gap-4 rounded-2xl border-2 border-dashed border-slate-300 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+        <HelpCircle className="h-10 w-10 shrink-0 text-slate-400" />
+        <div className="min-w-0">
+          <p className="text-base font-bold text-slate-900 dark:text-white">Plaque incomplète</p>
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            « {term.toUpperCase()} » n'est pas une plaque complète. Complétez-la (ex : <span className="font-mono">4131 5X 03</span>) ou rescannez avant de conclure.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (results.length === 0 && reliable) {
+    const info = describePlate(term);
     return (
       <div className="flex animate-scale-in items-center gap-4 rounded-2xl bg-emerald-600 p-4 text-white shadow-lg shadow-emerald-600/20">
         <CheckCircle2 className="h-10 w-10 shrink-0" />
-        <div>
+        <div className="min-w-0">
           <p className="text-lg font-extrabold uppercase tracking-tight">Aucun signalement</p>
           <p className="text-sm text-emerald-50">Aucun avis de vol en cours pour « {term.toUpperCase()} ».</p>
+          {info && (
+            <p className="mt-0.5 truncate text-xs text-emerald-100">
+              {[info.category, info.region].filter(Boolean).join(' · ')}
+            </p>
+          )}
         </div>
       </div>
     );

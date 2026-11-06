@@ -3,6 +3,7 @@ import { AlertOctagon, CheckCircle2, ChevronRight, Search } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getErrorMessage, sanitizeSearch, toIlikePattern, vehicleLabel } from '../lib/utils';
 import type { StolenVehicle } from '../types';
+import { normalizePlateInput } from '../utils/plateUtils';
 import { Alert, Button, Card, Input, PlateBadge } from './ui';
 import { VehicleStatusBadge } from './vehicles/VehicleModals';
 
@@ -21,7 +22,7 @@ export function VehicleSearch({ onSelect }: { onSelect: (v: StolenVehicle) => vo
 
     setLoading(true);
     setError(null);
-    const pattern = toIlikePattern(term);
+    const pattern = toIlikePattern(normalizePlateInput(term));
     const { data, error: err } = await supabase
       .from('stolen_vehicles')
       .select('*, commissariats:commissariat_id (nom, code)')
@@ -54,7 +55,7 @@ export function VehicleSearch({ onSelect }: { onSelect: (v: StolenVehicle) => vo
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Ex : 11 RJ 8596"
+          placeholder="Ex : 0029 D1 08"
           className="font-mono uppercase"
           containerClassName="flex-1"
           aria-label="Plaque ou numéro de châssis"

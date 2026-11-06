@@ -27,3 +27,6 @@ dist-ssr
 .env
 .env.*
 !.env.example
+
+# Moteur OCR copié depuis node_modules (scripts/copy-ocr-assets.mjs)
+public/ocr/
