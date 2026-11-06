@@ -1,374 +1,197 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Search, AlertTriangle, CheckCircle2, FileText, RefreshCw } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, CheckCircle2, ChevronRight, FileText, RefreshCw, Search } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { formatDate, getErrorMessage, vehicleLabel } from '../lib/utils';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import type { StolenVehicle, VehicleStatus } from '../types';
+import { Alert, Button, Card, CardHeader, EmptyState, Input, PlateBadge, Skeleton, Tabs } from './ui';
+import { RecoveryModal, VehicleDetailsModal } from './vehicles/VehicleModals';
+import { printVehicleReceipt } from './vehicles/printReceipt';
 
-// Exports depuis leurs fichiers respectifs
-import { VehicleDetailsModal, StolenVehicle } from '../components/modals/VehicleDetailsModal';
-import { RecoveryModal } from '../components/modals/RecoveryModal';
-
-interface RegistrePageProps {
-  isDarkMode?: boolean;
-}
-
-export const RegistrePage: React.FC<RegistrePageProps> = ({ isDarkMode = true }) => {
-  const [activeTab, setActiveTab] = useState<'STOLEN' | 'RECOVERED'>('STOLEN');
-  const [registrySearch, setRegistrySearch] = useState('');
-  const [loading, setLoading] = useState(false);
+/** Registre national : consultation, recherche, restitution et impression des fiches. */
+export function RegistrePage() {
+  const { profile } = useAuth();
+  const toast = useToast();
+  const [tab, setTab] = useState<VehicleStatus>('STOLEN');
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [vehicles, setVehicles] = useState<StolenVehicle[]>([]);
+  const [selected, setSelected] = useState<StolenVehicle | null>(null);
+  const [toRecover, setToRecover] = useState<StolenVehicle | null>(null);
 
-  // Gestion des modales
-  const [selectedVehicleModal, setSelectedVehicleModal] = useState<StolenVehicle | null>(null);
-  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
-  const [isRecoveryModalOpen, setIsRecoveryModalOpen] = useState(false);
-  const [vehicleToRecover, setVehicleToRecover] = useState<StolenVehicle | null>(null);
-
-  const fetchVehicles = async () => {
+  const fetchVehicles = useCallback(async () => {
     setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('stolen_vehicles')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      if (data) setVehicles(data as StolenVehicle[]);
-    } catch (err) {
-      console.error('Erreur lors du chargement du registre :', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchVehicles();
+    setError(null);
+    const { data, error: err } = await supabase
+      .from('stolen_vehicles')
+      .select('*, commissariats:commissariat_id (nom, code)')
+      .order('created_at', { ascending: false });
+    if (err) setError(getErrorMessage(err));
+    else setVehicles((data ?? []) as StolenVehicle[]);
+    setLoading(false);
   }, []);
 
-  const handleOpenRecoveryModal = (vehicle: StolenVehicle, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    setVehicleToRecover(vehicle);
-    setIsRecoveryModalOpen(true);
-  };
+  useEffect(() => {
+    void fetchVehicles();
+  }, [fetchVehicles]);
 
   const handleConfirmRecovery = async (station: string) => {
-    if (!vehicleToRecover) return;
-    const recoveredDate = new Date().toISOString().split('T')[0];
+    if (!toRecover) return;
+    const recovered_date = new Date().toISOString().slice(0, 10);
+    const { error: err } = await supabase
+      .from('stolen_vehicles')
+      .update({ status: 'RECOVERED', recovering_station: station, recovered_date })
+      .eq('id', toRecover.id);
 
-    try {
-      const { error } = await supabase
-        .from('stolen_vehicles')
-        .update({
-          status: 'RECOVERED',
-          recovering_station: station,
-          recovered_date: recoveredDate,
-        })
-        .eq('id', vehicleToRecover.id);
-
-      if (error) throw error;
-
-      // Mise à jour de l'état local
-      setVehicles((prev) =>
-        prev.map((item) =>
-          item.id === vehicleToRecover.id
-            ? { ...item, status: 'RECOVERED', recovering_station: station, recovered_date: recoveredDate }
-            : item
-        )
-      );
-
-      if (selectedVehicleModal?.id === vehicleToRecover.id) {
-        setSelectedVehicleModal((prev) =>
-          prev ? { ...prev, status: 'RECOVERED', recovering_station: station, recovered_date: recoveredDate } : null
-        );
-      }
-
-      setIsRecoveryModalOpen(false);
-      setVehicleToRecover(null);
-    } catch (err) {
-      console.error('Erreur lors du changement de statut :', err);
-      alert('Impossible de marquer l\'engin comme retrouvé.');
-    }
-  };
-
-  // Impression structurée d'un récépissé officiel
-  const handlePrintReceipt = (vehicle: StolenVehicle) => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert("Veuillez autoriser les fenêtres surgissantes (popups) pour imprimer le récépissé.");
+    if (err) {
+      toast.error("Impossible de marquer l'engin comme retrouvé", getErrorMessage(err));
       return;
     }
 
-    const isRecovered = vehicle.status === 'RECOVERED';
-
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html lang="fr">
-      <head>
-        <meta charset="UTF-8">
-        <title>Récépissé - ${vehicle.plate_number || 'SANS PLAQUE'}</title>
-        <style>
-          body { font-family: 'Helvetica Neue', Arial, sans-serif; padding: 40px; color: #1e293b; line-height: 1.5; }
-          .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 20px; margin-bottom: 30px; }
-          .title { font-size: 22px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
-          .subtitle { font-size: 14px; color: #64748b; margin-top: 5px; }
-          .badge { display: inline-block; padding: 6px 16px; font-weight: bold; font-size: 14px; border-radius: 6px; margin-top: 15px; text-transform: uppercase; }
-          .badge-stolen { background-color: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; }
-          .badge-recovered { background-color: #d1fae5; color: #059669; border: 1px solid #6ee7b7; }
-          .section { margin-bottom: 25px; }
-          .section-title { font-size: 12px; font-weight: bold; text-transform: uppercase; color: #64748b; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px; margin-bottom: 12px; }
-          .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-          .field-label { font-size: 11px; color: #64748b; text-transform: uppercase; }
-          .field-value { font-size: 14px; font-weight: 600; color: #0f172a; }
-          .footer { margin-top: 50px; border-top: 1px solid #e2e8f0; padding-top: 20px; display: flex; justify-content: space-between; font-size: 12px; color: #64748b; }
-          .signature-box { margin-top: 40px; text-align: right; padding-right: 20px; }
-          @media print { body { padding: 0; } }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <div class="title">Registre National des Engins</div>
-          <div class="subtitle">Fiche Officielle d'Enregistrement et de Suivi</div>
-          <div class="badge ${isRecovered ? 'badge-recovered' : 'badge-stolen'}">
-            ${isRecovered ? 'Engin Retrouvé' : 'Engin Recherché (Volé)'}
-          </div>
-        </div>
-
-        <div class="section">
-          <div class="section-title">Caractéristiques de l'Engin</div>
-          <div class="grid">
-            <div>
-              <div class="field-label">Immatriculation / Plaque</div>
-              <div class="field-value" style="font-family: monospace; font-size: 16px;">${vehicle.plate_number || 'SANS PLAQUE'}</div>
-            </div>
-            <div>
-              <div class="field-label">Marque & Modèle</div>
-              <div class="field-value">${vehicle.brand} ${vehicle.model}</div>
-            </div>
-            <div>
-              <div class="field-label">Couleur</div>
-              <div class="field-value">${vehicle.color || 'Non spécifiée'}</div>
-            </div>
-            <div>
-              <div class="field-label">N° de Châssis (VIN)</div>
-              <div class="field-value" style="font-family: monospace;">${vehicle.vin || 'Non renseigné'}</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="section">
-          <div class="section-title">Propriétaire & Déclaration</div>
-          <div class="grid">
-            <div>
-              <div class="field-label">Nom & Prénom du Propriétaire</div>
-              <div class="field-value">${vehicle.owner_name}</div>
-            </div>
-            <div>
-              <div class="field-label">N° Procès-Verbal / Dossier</div>
-              <div class="field-value" style="color: #2563eb;">${vehicle.report_number || 'Non renseigné'}</div>
-            </div>
-            <div>
-              <div class="field-label">Date du Vol</div>
-              <div class="field-value">${vehicle.stolen_date}</div>
-            </div>
-            <div>
-              <div class="field-label">Commissariat Déclarant</div>
-              <div class="field-value">${vehicle.declaring_station || 'Non renseigné'}</div>
-            </div>
-          </div>
-        </div>
-
-        ${isRecovered ? `
-        <div class="section">
-          <div class="section-title">Informations de Restitution / Restauration</div>
-          <div class="grid">
-            <div>
-              <div class="field-label">Commissariat Retrouvé</div>
-              <div class="field-value" style="color: #059669;">${vehicle.recovering_station || 'Non spécifié'}</div>
-            </div>
-            <div>
-              <div class="field-label">Date de Récupération</div>
-              <div class="field-value">${vehicle.recovered_date || 'Non renseignée'}</div>
-            </div>
-          </div>
-        </div>
-        ` : ''}
-
-        <div class="signature-box">
-          <p>Cachet et Signature de l'Autorité</p>
-          <br/><br/><br/>
-        </div>
-
-        <div class="footer">
-          <span>Généré le : ${new Date().toLocaleDateString('fr-FR')} à ${new Date().toLocaleTimeString('fr-FR')}</span>
-          <span>ID Fiche : ${vehicle.id}</span>
-        </div>
-
-        <script>
-          window.onload = function() {
-            window.print();
-            window.onafterprint = function() { window.close(); };
-          };
-        </script>
-      </body>
-      </html>
-    `);
-    printWindow.document.close();
+    const patch = { status: 'RECOVERED' as const, recovering_station: station, recovered_date };
+    setVehicles((list) => list.map((v) => (v.id === toRecover.id ? { ...v, ...patch } : v)));
+    setSelected((v) => (v?.id === toRecover.id ? { ...v, ...patch } : v));
+    toast.success('Engin marqué comme retrouvé', `${toRecover.plate_number ?? vehicleLabel(toRecover)} a été retiré des avis de recherche.`);
+    setToRecover(null);
   };
 
-  const filteredVehicles = useMemo(() => {
+  const handlePrint = (vehicle: StolenVehicle) => {
+    if (!printVehicleReceipt(vehicle)) {
+      toast.warning('Impression bloquée', 'Autorisez les fenêtres surgissantes pour imprimer la fiche.');
+    }
+  };
+
+  const counts = useMemo(
+    () => ({
+      STOLEN: vehicles.filter((v) => v.status !== 'RECOVERED').length,
+      RECOVERED: vehicles.filter((v) => v.status === 'RECOVERED').length,
+    }),
+    [vehicles],
+  );
+
+  const filtered = useMemo(() => {
+    const term = search.toLowerCase().replace(/[\s-]+/g, '');
     return vehicles.filter((v) => {
-      const matchesTab = v.status === activeTab;
-      const search = registrySearch.toLowerCase().trim();
-      
-      if (!search) return matchesTab;
-
-      const matchesSearch =
-        v.plate_number?.toLowerCase().includes(search) ||
-        v.owner_name?.toLowerCase().includes(search) ||
-        v.report_number?.toLowerCase().includes(search) ||
-        v.vin?.toLowerCase().includes(search) ||
-        v.brand?.toLowerCase().includes(search) ||
-        v.model?.toLowerCase().includes(search);
-
-      return matchesTab && matchesSearch;
+      const inTab = tab === 'RECOVERED' ? v.status === 'RECOVERED' : v.status !== 'RECOVERED';
+      if (!inTab) return false;
+      if (!term) return true;
+      return [v.plate_number, v.owner_name, v.report_number, v.vin, v.brand, v.model]
+        .some((field) => field?.toLowerCase().replace(/[\s-]+/g, '').includes(term));
     });
-  }, [vehicles, activeTab, registrySearch]);
-
-  const countStolen = useMemo(() => vehicles.filter((v) => v.status === 'STOLEN').length, [vehicles]);
-  const countRecovered = useMemo(() => vehicles.filter((v) => v.status === 'RECOVERED').length, [vehicles]);
+  }, [vehicles, tab, search]);
 
   return (
-    <div className="max-w-5xl mx-auto p-4 sm:p-6">
-      <div className={`p-6 rounded-2xl border shadow-lg ${
-        isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
-      }`}>
-        {/* En-tête + Recherche */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-          <div className="flex items-center gap-2">
-            <FileText className="w-5 h-5 text-blue-500" />
-            <h2 className="font-bold text-lg">Registre National des Engins</h2>
-            <button
-              onClick={fetchVehicles}
-              className={`p-1.5 rounded-lg transition-colors ${
-                isDarkMode ? 'hover:bg-slate-800 text-slate-400 hover:text-white' : 'hover:bg-slate-100 text-slate-600'
-              }`}
-              title="Rafraîchir"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
+    <Card>
+      <CardHeader
+        icon={<FileText className="h-5 w-5" />}
+        title="Registre national des engins"
+        description="Tous les signalements enregistrés, tous commissariats confondus."
+        actions={
+          <Button variant="outline" size="sm" icon={<RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />} onClick={fetchVehicles} disabled={loading}>
+            Actualiser
+          </Button>
+        }
+      />
 
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Rechercher (plaque, nom, PV...)"
-              value={registrySearch}
-              onChange={(e) => setRegistrySearch(e.target.value)}
-              className={`pl-9 pr-4 py-2 rounded-xl border text-sm w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                isDarkMode ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-              }`}
-            />
-          </div>
+      <div className="space-y-4 p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <Tabs
+            ariaLabel="Statut des engins"
+            value={tab}
+            onChange={setTab}
+            items={[
+              { value: 'STOLEN', label: 'Recherchés', icon: <AlertTriangle className="h-4 w-4 text-red-500" />, count: counts.STOLEN },
+              { value: 'RECOVERED', label: 'Retrouvés', icon: <CheckCircle2 className="h-4 w-4 text-emerald-500" />, count: counts.RECOVERED },
+            ]}
+          />
+          <Input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Plaque, propriétaire, N° PV, VIN…"
+            leading={<Search className="h-4 w-4" />}
+            containerClassName="w-full lg:w-80"
+            aria-label="Rechercher dans le registre"
+          />
         </div>
 
-        {/* Filtrage par statut */}
-        <div className={`flex gap-2 mb-6 p-1 rounded-xl border ${
-          isDarkMode ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-100 border-slate-200'
-        }`}>
-          <button
-            onClick={() => setActiveTab('STOLEN')}
-            className={`flex-1 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition-all ${
-              activeTab === 'STOLEN'
-                ? 'bg-red-500/20 text-red-400 border border-red-500/30'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <AlertTriangle className="w-4 h-4" />
-            Recherchés ({countStolen})
-          </button>
+        {error && (
+          <Alert variant="error" title="Chargement impossible" action={<Button size="sm" variant="outline" onClick={fetchVehicles}>Réessayer</Button>}>
+            {error}
+          </Alert>
+        )}
 
-          <button
-            onClick={() => setActiveTab('RECOVERED')}
-            className={`flex-1 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition-all ${
-              activeTab === 'RECOVERED'
-                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <CheckCircle2 className="w-4 h-4" />
-            Retrouvés ({countRecovered})
-          </button>
-        </div>
-
-        {/* Liste des résultats */}
-        <div className="space-y-3 overflow-y-auto max-h-[600px] pr-1">
-          {filteredVehicles.length === 0 ? (
-            <div className="text-center py-12 text-slate-500 text-sm">
-              {loading ? 'Chargement des enregistrements...' : 'Aucun engin trouvé.'}
-            </div>
-          ) : (
-            filteredVehicles.map((vehicle) => (
-              <div
-                key={vehicle.id}
-                onClick={() => {
-                  setSelectedVehicleModal(vehicle);
-                  setIsDetailModalOpen(true);
-                }}
-                className={`p-4 rounded-xl border cursor-pointer transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
-                  isDarkMode
-                    ? 'bg-slate-950/60 border-slate-800 hover:bg-slate-800/50 hover:border-slate-700'
-                    : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`px-2.5 py-1 rounded-lg font-mono font-black text-xs shrink-0 ${
-                    vehicle.status === 'RECOVERED'
-                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                      : 'bg-red-500/10 text-red-400 border border-red-500/20'
-                  }`}>
-                    {vehicle.plate_number || 'SANS PLAQUE'}
+        {loading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 6 }, (_, i) => (
+              <Skeleton key={i} className="h-16" />
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            icon={<Search className="h-5 w-5" />}
+            title={search ? 'Aucun résultat' : tab === 'STOLEN' ? 'Aucun engin recherché' : 'Aucun engin retrouvé'}
+            description={search ? `Aucun engin ne correspond à « ${search} ».` : undefined}
+          />
+        ) : (
+          <ul className="divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
+            {filtered.map((vehicle) => (
+              <li key={vehicle.id}>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setSelected(vehicle)}
+                  onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setSelected(vehicle)}
+                  className="flex cursor-pointer items-center gap-4 px-4 py-3 transition-colors hover:bg-slate-50 focus-visible:bg-slate-50 dark:hover:bg-slate-800/50 dark:focus-visible:bg-slate-800/50"
+                >
+                  <div className="w-32 shrink-0 sm:w-36">
+                    <PlateBadge plate={vehicle.plate_number} tone={vehicle.status === 'RECOVERED' ? 'emerald' : 'red'} size="sm" />
                   </div>
-
-                  <div>
-                    <h3 className={`font-bold text-sm ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
-                      {vehicle.brand} {vehicle.model}
-                    </h3>
-                    <p className="text-xs text-slate-400">
-                      {vehicle.owner_name} • N° PV: {vehicle.report_number || 'N/C'}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{vehicleLabel(vehicle)}</p>
+                    <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                      {vehicle.owner_name ?? 'Propriétaire inconnu'}
+                      <span className="hidden sm:inline"> · {vehicle.report_number ?? 'Signalement citoyen'}</span>
                     </p>
                   </div>
+                  <p className="hidden shrink-0 text-xs text-slate-500 md:block dark:text-slate-400">
+                    {formatDate(vehicle.status === 'RECOVERED' ? vehicle.recovered_date : vehicle.stolen_date ?? vehicle.created_at)}
+                  </p>
+                  {vehicle.status !== 'RECOVERED' && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="hidden shrink-0 sm:inline-flex"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setToRecover(vehicle);
+                      }}
+                    >
+                      Retrouvé
+                    </Button>
+                  )}
+                  <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
                 </div>
-
-                {vehicle.status === 'STOLEN' && (
-                  <button
-                    onClick={(e) => handleOpenRecoveryModal(vehicle, e)}
-                    className="px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/30 font-semibold text-xs transition-colors shrink-0 self-start sm:self-auto"
-                  >
-                    Marquer Retrouvé
-                  </button>
-                )}
-              </div>
-            ))
-          )}
-        </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
-      {/* Popups / Modales associées */}
+      <VehicleDetailsModal
+        vehicle={selected}
+        onClose={() => setSelected(null)}
+        onPrint={handlePrint}
+        onMarkRecovered={(v) => setToRecover(v)}
+      />
       <RecoveryModal
-        isOpen={isRecoveryModalOpen}
-        vehicle={vehicleToRecover}
-        isDarkMode={isDarkMode}
-        onClose={() => setIsRecoveryModalOpen(false)}
+        vehicle={toRecover}
+        defaultStation={profile?.commissariats?.nom ?? ''}
+        onClose={() => setToRecover(null)}
         onConfirm={handleConfirmRecovery}
       />
-
-      <VehicleDetailsModal
-        vehicle={selectedVehicleModal}
-        isOpen={isDetailModalOpen}
-        isDarkMode={isDarkMode}
-        onClose={() => setIsDetailModalOpen(false)}
-        onPrint={handlePrintReceipt}
-        onMarkAsRecovered={(v) => handleOpenRecoveryModal(v)}
-      />
-    </div>
+    </Card>
   );
-};
+}

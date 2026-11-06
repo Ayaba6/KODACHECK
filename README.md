@@ -1,16 +1,61 @@
-# React + Vite
+# KODACHECK — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Plateforme de vérification des engins signalés volés : registre national, contrôle terrain (avec lecture de plaque
+et mode hors-ligne) et déclaration en ligne pour les citoyens.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+React 19 · TypeScript · Vite · Tailwind CSS · Supabase (auth, base, temps réel, Edge Functions) · Dexie (IndexedDB) · Tesseract.js (OCR local)
 
-## React Compiler
+## Démarrage
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+npm install
+cp .env.example .env   # puis renseigner l'URL et la clé anon du projet Supabase
+npm run dev
+```
 
-## Expanding the Oxlint configuration
+| Script | Rôle |
+| --- | --- |
+| `npm run dev` | Serveur de développement |
+| `npm run build` | Vérification TypeScript puis build de production |
+| `npm run typecheck` | Vérification TypeScript seule |
+| `npm run lint` | Analyse statique (oxlint) |
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+## Rôles et espaces
+
+| Rôle | Espace |
+| --- | --- |
+| `super_admin` | Commissariats, comptes commissaires, vue nationale |
+| `commissaire` | Agents de son commissariat, signalements de l'unité |
+| `agent_bureau` | Registre national, saisie de PV, signalements citoyens |
+| `agent_terrain` | Vérification instantanée, scan de plaque, alertes en direct, hors-ligne |
+| (public) | Espace citoyen : `/#citoyen` |
+
+## Comptes et connexion
+
+Les comptes sont créés **uniquement** par l'Edge Function `create-agent` (la clé `service_role` ne doit jamais être
+dans le frontend). Chaque compte reçoit un matricule `MAT-XXXXXX` ; l'identifiant Supabase est
+`mat-xxxxxx@kodacheck.com`, et l'agent se connecte avec son matricule.
+
+Déploiement de la fonction :
+
+```bash
+supabase functions deploy create-agent --project-ref <ref-du-projet>
+```
+
+`SUPABASE_URL`, `SUPABASE_ANON_KEY` et `SUPABASE_SERVICE_ROLE_KEY` sont fournies automatiquement par Supabase.
+
+## Structure
+
+```
+src/
+  components/ui/        Kit d'interface (boutons, champs, cartes, modales, onglets…)
+  components/layout/    Logo, en-tête et mise en page des tableaux de bord
+  components/vehicles/  Fiche engin, restitution, impression
+  context/              Thème, authentification, notifications
+  hooks/                Registre terrain (en ligne / hors-ligne / temps réel)
+  lib/                  Supabase, base locale, utilitaires
+  pages/                Écrans par rôle + espace public
+supabase/functions/     Edge Functions
+```
