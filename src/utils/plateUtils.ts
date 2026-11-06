@@ -274,3 +274,19 @@ export function describePlate(plate: string | null | undefined): { category?: st
     region: region ? `${region.name} (${region.chefLieu})` : undefined,
   };
 }
+
+/** La saisie (ou la lecture) correspond-elle à une plaque complète et au format reconnu ? */
+export function isCompletePlate(value: string | null | undefined): boolean {
+  return Boolean(parsePlate(value ?? '')?.strong);
+}
+
+/**
+ * N° d'ordre (4 chiffres) présent dans une lecture partielle, ex : « 4131 Y I » → « 4131 ».
+ * Sert à proposer des correspondances possibles quand la plaque n'a pas été lue entièrement.
+ */
+export function extractSerial(value: string | null | undefined): string | null {
+  const m = (value ?? '').toUpperCase().match(new RegExp(`(?:^|[^0-9])(${D}{4})(?![0-9])`));
+  if (!m) return null;
+  const serial = toDigits(m[1]);
+  return /^\d{4}$/.test(serial) ? serial : null;
+}

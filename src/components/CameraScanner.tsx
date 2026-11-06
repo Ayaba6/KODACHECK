@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Worker } from 'tesseract.js';
 import { Camera, CameraOff, Flashlight, FlashlightOff, Keyboard, Loader2, RotateCcw, Search, X, ZoomIn } from 'lucide-react';
-import { compactPlate, describePlate, type PlateReading } from '../utils/plateUtils';
+import { compactPlate, describePlate, isCompletePlate, type PlateReading } from '../utils/plateUtils';
 import { createPlateWorker, mapOverlayToVideo, preprocessRegion, READ_VARIANTS, readPlate, scanRegion, type ReadVariant } from '../utils/plateOcr';
 import { PlateVote } from '../utils/plateVote';
 import { cn } from '../lib/utils';
@@ -436,6 +436,11 @@ export default function CameraScanner({ onScanComplete, onClose }: CameraScanner
               {plateInfo && (
                 <p className="mt-1.5 text-center text-sm font-medium text-slate-700 dark:text-slate-300">
                   {[plateInfo.category, plateInfo.region].filter(Boolean).join(' · ')}
+                </p>
+              )}
+              {plate && !isCompletePlate(plate) && (
+                <p className="mt-1.5 text-center text-sm font-medium text-amber-600 dark:text-amber-400">
+                  Plaque incomplète ou non reconnue : complétez-la ou rescannez.
                 </p>
               )}
             </div>
