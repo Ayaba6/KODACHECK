@@ -1,328 +1,183 @@
-import React, { useState, useEffect } from 'react';
-import { PlusCircle, AlertTriangle, Loader2, ShieldAlert } from 'lucide-react';
+import { useState, type FormEvent } from 'react';
+import { FilePlus2, ShieldAlert } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { getErrorMessage, todayISO } from '../lib/utils';
+import { BRAND_OPTIONS, COLOR_OPTIONS, VEHICLE_BRANDS } from '../lib/vehicleCatalog';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import { Alert, Button, Card, CardHeader, Input, Select } from './ui';
 
-// Dictionnaire des marques et modèles d'engins
-const MARQUES_ET_MODELES: Record<string, string[]> = {
-  Yamaha: ['Crypton', 'Sirius', 'Force X', 'DT', 'FJR', 'Autre'],
-  Honda: ['CG', 'CB', 'XR', 'Wave', 'Dio', 'Autre'],
-  Kaizer: ['K125', 'K150', 'Super', 'Autre'],
-  Rato: ['RT125', 'RT150', 'Autre'],
-  Aloba: ['100', '125', 'Autre'],
-  Kavaki: ['125', '150', 'Autre'],
-  Sanili: ['110', '125', 'Autre'],
-  Nouveau_Nom: ['Standard', 'Autre'],
-  Autre: ['Générique', 'Non précisé']
+const EMPTY_FORM = {
+  plate_number: '',
+  brand: '',
+  model: '',
+  color: '',
+  vin: '',
+  owner_name: '',
+  stolen_date: todayISO(),
 };
 
-interface DeclarerPageProps {
-  isDarkMode?: boolean;
-  onSuccess?: () => void;
-}
-
-export const DeclarerPage: React.FC<DeclarerPageProps> = ({ isDarkMode = true, onSuccess }) => {
+/** Saisie d'un procès-verbal de vol par un agent de bureau (numéro de PV généré côté serveur). */
+export function DeclarerPage({ onSuccess }: { onSuccess?: () => void }) {
+  const { profile } = useAuth();
+  const toast = useToast();
+  const [form, setForm] = useState(EMPTY_FORM);
   const [loading, setLoading] = useState(false);
-  const [fetchingProfile, setFetchingProfile] = useState(true);
-  
-  const [agentData, setAgentData] = useState<{
-    commissariat_id: string | null;
-    commissariat_nom: string;
-    commissariat_code: string;
-  }>({
-    commissariat_id: null,
-    commissariat_nom: '',
-    commissariat_code: '',
-  });
+  const [errors, setErrors] = useState<Partial<Record<keyof typeof EMPTY_FORM, string>>>({});
 
-  const [formData, setFormData] = useState({
-    plate_number: '',
-    brand: 'Yamaha',
-    model: 'Crypton',
-    color: '',
-    vin: '',
-    owner_name: '',
-    stolen_date: new Date().toISOString().split('T')[0],
-  });
-
-  // Récupération automatique du profil, du nom et du code du commissariat
-  useEffect(() => {
-    async function fetchAgentCommissariat() {
-      try {
-        setFetchingProfile(true);
-        const { data: { user } } = await supabase.auth.getUser();
-        
-        if (!user) {
-          setAgentData({ commissariat_id: null, commissariat_nom: 'Non authentifié', commissariat_code: 'ERR' });
-          return;
-        }
-
-        const { data: profile, error } = await supabase
-          .from('profiles')
-          .select(`
-            commissariat_id,
-            commissariats (
-              nom,
-              code
-            )
-          `)
-          .eq('id', user.id)
-          .single();
-
-        if (error) throw error;
-
-        const commissariatInfo = (profile?.commissariats as any);
-
-        setAgentData({
-          commissariat_id: profile?.commissariat_id || null,
-          commissariat_nom: commissariatInfo?.nom || '',
-          commissariat_code: commissariatInfo?.code || 'COMM',
-        });
-      } catch (err) {
-        console.error('Erreur lors de la récupération du profil agent :', err);
-        setAgentData({ commissariat_id: null, commissariat_nom: '', commissariat_code: 'ERR' });
-      } finally {
-        setFetchingProfile(false);
-      }
-    }
-
-    fetchAgentCommissariat();
-  }, []);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!agentData.commissariat_id) {
-      alert("Erreur critique : Impossible d'enregistrer. Votre compte n'est rattaché à aucun commissariat.");
-      return;
-    }
-
-    if (!formData.plate_number.trim() || !formData.owner_name.trim()) {
-      alert("Veuillez remplir au moins la plaque d'immatriculation et le nom du propriétaire.");
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      // Appel de la procédure stockée Supabase qui génère automatiquement le PV codifié et l'incrémente
-      const { error } = await supabase.rpc('create_stolen_vehicle_with_pv', {
-        p_plate_number: formData.plate_number.trim().toUpperCase(),
-        p_brand: formData.brand,
-        p_model: formData.model,
-        p_color: formData.color.trim(),
-        p_vin: formData.vin.trim().toUpperCase(),
-        p_owner_name: formData.owner_name.trim(),
-        p_stolen_date: formData.stolen_date,
-        p_commissariat_id: agentData.commissariat_id
-      });
-      
-      if (error) throw error;
-
-      alert(`Signalement enregistré avec succès par l'unité ${agentData.commissariat_nom} (${agentData.commissariat_code}). Le numéro de PV a été généré et incrémenté automatiquement.`);
-
-      // Réinitialisation du formulaire
-      setFormData({
-        plate_number: '',
-        brand: 'Yamaha',
-        model: 'Crypton',
-        color: '',
-        vin: '',
-        owner_name: '',
-        stolen_date: new Date().toISOString().split('T')[0],
-      });
-
-      if (onSuccess) {
-        onSuccess();
-      }
-    } catch (err: any) {
-      console.error('Erreur d\'enregistrement :', err);
-      alert(`Erreur lors de l'enregistrement du PV: ${err.message || 'Erreur réseau'}`);
-    } finally {
-      setLoading(false);
-    }
+  const commissariat = profile?.commissariats;
+  const update = (field: keyof typeof EMPTY_FORM, value: string) => {
+    setForm((f) => ({ ...f, [field]: value }));
+    setErrors((e) => ({ ...e, [field]: undefined }));
   };
 
-  if (fetchingProfile) {
+  if (!profile?.commissariat_id || !commissariat) {
     return (
-      <div className="flex justify-center items-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-      </div>
+      <Alert variant="error" title="Aucun commissariat de rattachement">
+        Chaque procès-verbal doit être lié à un commissariat. Votre compte n'en a pas : contactez votre commissaire ou
+        l'administrateur.
+      </Alert>
     );
   }
 
-  if (!agentData.commissariat_id) {
-    return (
-      <div className="max-w-md mx-auto mt-10 p-6 rounded-2xl border border-red-500/30 bg-red-500/10 text-red-200 text-center space-y-4">
-        <ShieldAlert className="w-12 h-12 text-red-400 mx-auto" />
-        <h3 className="font-bold text-lg">Action requise : Commissariat non assigné</h3>
-        <p className="text-xs leading-relaxed text-red-300">
-          Votre compte agent n'est rattaché à aucune unité de police. Pour des raisons de traçabilité, chaque déclaration doit obligatoirement être liée à un commissariat. Veuillez contacter votre Super Administrateur.
-        </p>
-      </div>
-    );
-  }
+  const validate = () => {
+    const next: typeof errors = {};
+    if (!form.plate_number.trim() && !form.vin.trim()) next.plate_number = 'Indiquez la plaque ou le numéro de châssis.';
+    if (!form.brand) next.brand = 'Choisissez une marque.';
+    if (!form.owner_name.trim()) next.owner_name = 'Le nom du propriétaire est obligatoire.';
+    if (form.stolen_date > todayISO()) next.stolen_date = 'La date du vol ne peut pas être dans le futur.';
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!validate()) return;
+
+    setLoading(true);
+    const { error } = await supabase.rpc('create_stolen_vehicle_with_pv', {
+      p_plate_number: form.plate_number.trim().toUpperCase(),
+      p_brand: form.brand,
+      p_model: form.model.trim(),
+      p_color: form.color,
+      p_vin: form.vin.trim().toUpperCase(),
+      p_owner_name: form.owner_name.trim(),
+      p_stolen_date: form.stolen_date,
+      p_commissariat_id: profile.commissariat_id,
+    });
+    setLoading(false);
+
+    if (error) {
+      toast.error("Le PV n'a pas pu être enregistré", getErrorMessage(error));
+      return;
+    }
+
+    toast.success('Procès-verbal enregistré', `Le signalement est diffusé sur tous les terminaux de terrain.`);
+    setForm({ ...EMPTY_FORM, stolen_date: todayISO() });
+    onSuccess?.();
+  };
+
+  const modelSuggestions = VEHICLE_BRANDS[form.brand] ?? [];
 
   return (
-    <div className="max-w-2xl mx-auto p-4 sm:p-6">
-      <div className={`p-6 rounded-2xl border shadow-lg ${
-        isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
-      }`}>
-        
-        {/* En-tête */}
-        <div className="flex items-center gap-2 mb-6 border-b pb-4 border-slate-800">
-          <PlusCircle className="w-5 h-5 text-blue-500" />
-          <div>
-            <h2 className="font-bold text-lg">Nouveau Signalement de Vol</h2>
-            <p className="text-xs text-emerald-400 font-medium">
-              Unité émettrice : {agentData.commissariat_nom} <span className="font-mono bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">[{agentData.commissariat_code}]</span>
-            </p>
+    <Card className="mx-auto max-w-3xl">
+      <CardHeader
+        icon={<FilePlus2 className="h-5 w-5" />}
+        title="Nouveau procès-verbal de vol"
+        description={
+          <>
+            Unité émettrice : <strong className="text-slate-700 dark:text-slate-200">{commissariat.nom}</strong>{' '}
+            <span className="font-mono text-brand-600 dark:text-brand-400">({commissariat.code})</span>
+          </>
+        }
+      />
+      <form onSubmit={handleSubmit} className="space-y-6 p-5" noValidate>
+        <fieldset className="space-y-4">
+          <legend className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Engin</legend>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input
+              label="Plaque d'immatriculation"
+              value={form.plate_number}
+              onChange={(e) => update('plate_number', e.target.value.toUpperCase())}
+              placeholder="11 RJ 8596"
+              className="font-mono uppercase"
+              error={errors.plate_number}
+              autoFocus
+            />
+            <Input
+              label="N° de châssis (VIN)"
+              value={form.vin}
+              onChange={(e) => update('vin', e.target.value.toUpperCase())}
+              placeholder="Numéro de série"
+              className="font-mono uppercase"
+            />
           </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Select label="Marque" required value={form.brand} onChange={(e) => update('brand', e.target.value)} error={errors.brand}>
+              <option value="">Choisir…</option>
+              {BRAND_OPTIONS.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
+            </Select>
+            <Input
+              label="Modèle"
+              value={form.model}
+              onChange={(e) => update('model', e.target.value)}
+              list="bureau-model-suggestions"
+              placeholder={modelSuggestions[0] ?? 'Modèle'}
+            />
+            <datalist id="bureau-model-suggestions">
+              {modelSuggestions.map((m) => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
+            <Select label="Couleur" value={form.color} onChange={(e) => update('color', e.target.value)}>
+              <option value="">Non précisée</option>
+              {COLOR_OPTIONS.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </fieldset>
+
+        <fieldset className="space-y-4">
+          <legend className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Déclaration</legend>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input
+              label="Nom du propriétaire"
+              required
+              value={form.owner_name}
+              onChange={(e) => update('owner_name', e.target.value)}
+              placeholder="Nom et prénom"
+              error={errors.owner_name}
+            />
+            <Input
+              label="Date du vol"
+              type="date"
+              required
+              max={todayISO()}
+              value={form.stolen_date}
+              onChange={(e) => update('stolen_date', e.target.value)}
+              error={errors.stolen_date}
+            />
+          </div>
+        </fieldset>
+
+        <Alert variant="info">
+          Le numéro de PV est attribué automatiquement au format{' '}
+          <span className="font-mono font-semibold">PV-{commissariat.code}-AAAAMM-XXXX</span>.
+        </Alert>
+
+        <div className="flex justify-end">
+          <Button type="submit" variant="danger" size="lg" loading={loading} icon={<ShieldAlert className="h-4 w-4" />} className="w-full sm:w-auto">
+            Enregistrer le signalement
+          </Button>
         </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          
-          {/* Plaque d'immatriculation */}
-          <div>
-            <label className="text-xs font-semibold text-slate-400 mb-1 block">Immatriculation / Plaque *</label>
-            <input
-              type="text"
-              required
-              placeholder="Ex: 11-JJ-4500 ou BF-0001"
-              value={formData.plate_number}
-              onChange={(e) => setFormData({ ...formData, plate_number: e.target.value.toUpperCase() })}
-              className={`w-full px-3 py-2 rounded-lg border font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                isDarkMode ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-              }`}
-            />
-          </div>
-
-          {/* Marque et Modèle */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-slate-400 mb-1 block">Marque</label>
-              <select
-                value={formData.brand}
-                onChange={(e) => {
-                  const brand = e.target.value;
-                  const defaultModel = MARQUES_ET_MODELES[brand]?.[0] || 'Autre';
-                  setFormData({ ...formData, brand, model: defaultModel });
-                }}
-                className={`w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                  isDarkMode ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                }`}
-              >
-                {Object.keys(MARQUES_ET_MODELES).map((b) => (
-                  <option key={b} value={b}>{b}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-slate-400 mb-1 block">Modèle</label>
-              <select
-                value={formData.model}
-                onChange={(e) => setFormData({ ...formData, model: e.target.value })}
-                className={`w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                  isDarkMode ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                }`}
-              >
-                {(MARQUES_ET_MODELES[formData.brand] || ['Autre']).map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Couleur et Date du Vol */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-slate-400 mb-1 block">Couleur</label>
-              <input
-                type="text"
-                placeholder="Ex: Rouge, Noir"
-                value={formData.color}
-                onChange={(e) => setFormData({ ...formData, color: e.target.value })}
-                className={`w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                  isDarkMode ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                }`}
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-slate-400 mb-1 block">Date du Vol</label>
-              <input
-                type="date"
-                value={formData.stolen_date}
-                onChange={(e) => setFormData({ ...formData, stolen_date: e.target.value })}
-                className={`w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                  isDarkMode ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                }`}
-              />
-            </div>
-          </div>
-
-          {/* N° de Châssis (VIN) */}
-          <div>
-            <label className="text-xs font-semibold text-slate-400 mb-1 block">Numéro de Châssis (VIN)</label>
-            <input
-              type="text"
-              placeholder="N° de série du châssis"
-              value={formData.vin}
-              onChange={(e) => setFormData({ ...formData, vin: e.target.value.toUpperCase() })}
-              className={`w-full px-3 py-2 rounded-lg border font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                isDarkMode ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-              }`}
-            />
-          </div>
-
-          {/* Nom du Propriétaire */}
-          <div>
-            <label className="text-xs font-semibold text-slate-400 mb-1 block">Nom du Propriétaire *</label>
-            <input
-              type="text"
-              required
-              placeholder="Nom & Prénom"
-              value={formData.owner_name}
-              onChange={(e) => setFormData({ ...formData, owner_name: e.target.value })}
-              className={`w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                isDarkMode ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-              }`}
-            />
-          </div>
-
-          {/* Service Déclarant (Fixé automatiquement) */}
-          <div>
-            <label className="text-xs font-semibold text-slate-400 mb-1 block">Codification Automatique du PV</label>
-            <input
-              type="text"
-              disabled
-              value={`Format généré : PV-${agentData.commissariat_code}-AAAAMM-XXXX`}
-              className={`w-full px-3 py-2 rounded-lg border text-sm font-bold opacity-90 cursor-not-allowed ${
-                isDarkMode ? 'bg-slate-950 border-slate-800 text-emerald-400' : 'bg-slate-100 border-slate-300 text-emerald-700'
-              }`}
-            />
-          </div>
-
-          {/* Bouton de soumission */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 mt-4 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm shadow-lg shadow-red-600/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Enregistrement en cours...</span>
-              </>
-            ) : (
-              <>
-                <AlertTriangle className="w-4 h-4" />
-                <span>Enregistrer le Signalement ({agentData.commissariat_code})</span>
-              </>
-            )}
-          </button>
-        </form>
-      </div>
-    </div>
+      </form>
+    </Card>
   );
-};
+}

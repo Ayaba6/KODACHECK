@@ -1,189 +1,183 @@
-import React, { useRef, useState, useEffect } from 'react';
-import { createWorker } from 'tesseract.js';
-import { Camera, RefreshCw, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createWorker, PSM, type Worker } from 'tesseract.js';
+import { Camera, CameraOff, Loader2, ScanLine, X } from 'lucide-react';
+import { extractPlateFromOcr } from '../utils/plateUtils';
+import { Alert, Button } from './ui';
 
-export default function CameraScanner({ onScanComplete, onClose }) {
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState('');
+interface CameraScannerProps {
+  onScanComplete: (plate: string) => void;
+  onClose: () => void;
+}
 
+type Status = 'starting' | 'ready' | 'reading' | 'denied' | 'unsupported';
+
+/** Lecture de plaque par la caméra arrière + OCR exécuté localement dans le navigateur. */
+export default function CameraScanner({ onScanComplete, onClose }: CameraScannerProps) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const workerRef = useRef<Promise<Worker> | null>(null);
+  const [status, setStatus] = useState<Status>('starting');
+  const [hint, setHint] = useState<string | null>(null);
+  const onCloseRef = useRef(onClose);
   useEffect(() => {
-    startCamera();
-    return () => stopCamera();
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
   }, []);
 
-  const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
-      });
-      if (videoRef.current) videoRef.current.srcObject = stream;
-    } catch (err) {
-      console.error("Erreur accès caméra:", err);
-    }
-  };
+  useEffect(() => {
+    let cancelled = false;
 
-  const stopCamera = () => {
-    if (videoRef.current?.srcObject) {
-      videoRef.current.srcObject.getTracks().forEach(track => track.stop());
-    }
-  };
-
-  // Prétraitement d'image avancé pour plaques de moto / auto
-  const applyAdvancedFilters = (ctx, width, height) => {
-    const imgData = ctx.getImageData(0, 0, width, height);
-    const data = imgData.data;
-
-    // 1. Augmentation du contraste et binarisation
-    for (let i = 0; i < data.length; i += 4) {
-      // Conversion échelle de gris
-      const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-      
-      // Ajustement de contraste agressif pour faire ressortir les chiffres noirs
-      const v = gray < 120 ? 0 : 255;
-
-      data[i] = v;
-      data[i + 1] = v;
-      data[i + 2] = v;
-    }
-
-    ctx.putImageData(imgData, 0, 0);
-  };
-
-  // Correction des erreurs fréquentes de confusion visuelle (OCR Offline)
-  const fixCommonOcrErrors = (str) => {
-    return str
-      .replace(/I/g, '1')
-      .replace(/O/g, '0')
-      .replace(/Z/g, '7')
-      .replace(/S/g, '5')
-      .replace(/B/g, '8');
-  };
-
-  // Post-traitement et extraction de l'immatriculation Burkina Faso
-  const processBurkinaPlateText = (rawText) => {
-    const lines = rawText.toUpperCase().split('\n');
-    let tokens = [];
-
-    lines.forEach(line => {
-      const cleaned = line.replace(/[^A-Z0-9]/g, ' ').trim();
-      if (cleaned.length > 0) {
-        tokens.push(...cleaned.split(/\s+/));
-      }
-    });
-
-    const fullStr = tokens.join(' ');
-
-    // Motif 1 : Moto récent (ex: 4131 5X 03 -> 4131 5X 03)
-    const motoMatch = fullStr.match(/(\d{3,4})\s*([0-9A-Z]{2})\s*(\d{2})/);
-    if (motoMatch) {
-      const part2 = fixCommonOcrErrors(motoMatch[2]);
-      return `${motoMatch[1]} ${part2} ${motoMatch[3]}`;
-    }
-
-    // Motif 2 : Format Standard Auto/Moto (ex: 11 RJ 8596 / 11 RJ 8596 BF)
-    const standardMatch = fullStr.match(/(\d{1,2})\s*([A-Z]{1,3})\s*(\d{3,4})/);
-    if (standardMatch) {
-      return `${standardMatch[1]} ${standardMatch[2]} ${standardMatch[3]}`;
-    }
-
-    // Fallback : renvoie les 3 premiers blocs valides s'ils existent
-    if (tokens.length >= 2) {
-      return tokens.slice(0, 3).join(' ');
-    }
-
-    return null;
-  };
-
-  const captureAndRecognize = async () => {
-    if (!videoRef.current || !canvasRef.current) return;
-
-    setLoading(true);
-    setProgress('Optimisation de l\'image...');
-
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-
-    // Ciblage haute résolution de la zone centrale
-    const cropWidth = video.videoWidth * 0.75;
-    const cropHeight = video.videoHeight * 0.4;
-    const cropX = (video.videoWidth - cropWidth) / 2;
-    const cropY = (video.videoHeight - cropHeight) / 2;
-
-    canvas.width = cropWidth;
-    canvas.height = cropHeight;
-
-    ctx.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
-    applyAdvancedFilters(ctx, cropWidth, cropHeight);
-
-    try {
-      setProgress('Analyse locale (Hors ligne)...');
-      
-      const worker = await createWorker('eng');
-      
+    // Pré-chargement du moteur OCR pendant que la caméra démarre
+    workerRef.current = createWorker('eng').then(async (worker) => {
       await worker.setParameters({
         tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ',
-        tessedit_pageseg_mode: '6', // Mode 6 : bloc de texte uniforme
+        tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
       });
+      return worker;
+    });
 
-      const { data: { text } } = await worker.recognize(canvas);
-      await worker.terminate();
-
-      const plateResult = processBurkinaPlateText(text);
-
-      if (plateResult) {
-        stopCamera();
-        onScanComplete(plateResult);
-      } else {
-        alert("Plaque non reconnue. Rapprochez-vous du cadre central.");
+    async function start() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setStatus('unsupported');
+        return;
       }
-    } catch (err) {
-      console.error("Erreur OCR Local :", err);
-      alert("Erreur lors de la lecture locale.");
-    } finally {
-      setLoading(false);
-      setProgress('');
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false,
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        streamRef.current = stream;
+        if (videoRef.current) videoRef.current.srcObject = stream;
+        setStatus('ready');
+      } catch {
+        if (!cancelled) setStatus('denied');
+      }
     }
+    void start();
+
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onCloseRef.current();
+    document.addEventListener('keydown', onKey);
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener('keydown', onKey);
+      stopCamera();
+      void workerRef.current?.then((w) => w.terminate()).catch(() => undefined);
+    };
+  }, [stopCamera]);
+
+  const capture = async () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+    if (!video || !canvas || !ctx || !workerRef.current) return;
+
+    setStatus('reading');
+    setHint(null);
+
+    // Recadrage sur la zone de visée (75 % × 40 % au centre)
+    const cropW = video.videoWidth * 0.75;
+    const cropH = video.videoHeight * 0.4;
+    canvas.width = cropW;
+    canvas.height = cropH;
+    ctx.drawImage(video, (video.videoWidth - cropW) / 2, (video.videoHeight - cropH) / 2, cropW, cropH, 0, 0, cropW, cropH);
+
+    // Niveaux de gris + binarisation pour faire ressortir les caractères
+    const img = ctx.getImageData(0, 0, cropW, cropH);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const gray = 0.299 * img.data[i] + 0.587 * img.data[i + 1] + 0.114 * img.data[i + 2];
+      const v = gray < 120 ? 0 : 255;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+    }
+    ctx.putImageData(img, 0, 0);
+
+    try {
+      const worker = await workerRef.current;
+      const { data } = await worker.recognize(canvas);
+      const plate = extractPlateFromOcr(data.text);
+      if (plate) {
+        stopCamera();
+        onScanComplete(plate);
+        return;
+      }
+      setHint('Plaque non reconnue. Rapprochez-vous et cadrez uniquement la plaque, bien éclairée.');
+    } catch (err) {
+      console.error('Erreur OCR :', err);
+      setHint("La lecture a échoué. Si c'est la première utilisation, une connexion internet est nécessaire pour charger le moteur de lecture.");
+    }
+    setStatus('ready');
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-between p-4">
-      <div className="w-full flex items-center justify-between text-white py-2">
-        <span className="font-bold text-sm">Scanner Plaque (Mode Hors Ligne)</span>
-        <button onClick={onClose} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700">
-          <X className="w-5 h-5 text-white" />
+    <div className="fixed inset-0 z-[60] flex animate-fade-in flex-col bg-black" role="dialog" aria-modal="true" aria-label="Scanner une plaque">
+      <div className="flex items-center justify-between px-4 py-3 text-white" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}>
+        <div>
+          <p className="text-sm font-semibold">Scanner une plaque</p>
+          <p className="text-xs text-white/60">Lecture effectuée sur l'appareil</p>
+        </div>
+        <button type="button" onClick={onClose} aria-label="Fermer le scanner" className="rounded-full bg-white/10 p-2 hover:bg-white/20">
+          <X className="h-5 w-5" />
         </button>
       </div>
 
-      <div className="relative w-full max-w-md aspect-video rounded-2xl overflow-hidden border-2 border-emerald-500/50 bg-black flex items-center justify-center">
-        <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
-        <canvas ref={canvasRef} className="hidden" />
-
-        <div className="absolute w-[75%] h-[40%] border-2 border-dashed border-emerald-400 rounded-lg pointer-events-none flex items-center justify-center bg-emerald-500/10">
-          <span className="text-[10px] text-emerald-300 font-mono bg-black/80 px-2 py-0.5 rounded">
-            Cadrez uniquement la plaque
-          </span>
-        </div>
-      </div>
-
-      <div className="w-full max-w-md my-4 text-center">
-        {loading ? (
-          <div className="flex items-center justify-center gap-2 text-emerald-400 font-semibold py-3">
-            <RefreshCw className="w-5 h-5 animate-spin" />
-            <span>{progress}</span>
+      <div className="relative flex flex-1 items-center justify-center overflow-hidden">
+        {status === 'denied' || status === 'unsupported' ? (
+          <div className="max-w-sm space-y-4 p-6 text-center text-white">
+            <CameraOff className="mx-auto h-12 w-12 text-white/50" />
+            <p className="font-semibold">{status === 'denied' ? 'Accès à la caméra refusé' : 'Caméra non disponible'}</p>
+            <p className="text-sm text-white/70">
+              {status === 'denied'
+                ? "Autorisez l'accès à la caméra dans les réglages du navigateur, puis réessayez. Vous pouvez aussi saisir la plaque manuellement."
+                : "Ce navigateur ne permet pas d'utiliser la caméra. Saisissez la plaque manuellement."}
+            </p>
+            <Button variant="secondary" onClick={onClose}>
+              Saisie manuelle
+            </Button>
           </div>
         ) : (
-          <button
-            onClick={captureAndRecognize}
-            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 px-6 rounded-xl flex items-center justify-center gap-2 shadow-lg"
-          >
-            <Camera className="w-5 h-5" />
-            <span>Lire la plaque (Hors ligne)</span>
-          </button>
+          <>
+            <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="relative h-[40%] w-[75%] rounded-xl shadow-[0_0_0_9999px_rgba(0,0,0,0.55)]">
+                <span className="absolute -left-0.5 -top-0.5 h-6 w-6 rounded-tl-xl border-l-4 border-t-4 border-emerald-400" />
+                <span className="absolute -right-0.5 -top-0.5 h-6 w-6 rounded-tr-xl border-r-4 border-t-4 border-emerald-400" />
+                <span className="absolute -bottom-0.5 -left-0.5 h-6 w-6 rounded-bl-xl border-b-4 border-l-4 border-emerald-400" />
+                <span className="absolute -bottom-0.5 -right-0.5 h-6 w-6 rounded-br-xl border-b-4 border-r-4 border-emerald-400" />
+                {status === 'reading' && <ScanLine className="absolute inset-0 m-auto h-10 w-10 animate-pulse text-emerald-300" />}
+              </div>
+            </div>
+            {status === 'starting' && (
+              <div className="absolute inset-0 flex items-center justify-center text-white">
+                <Loader2 className="h-8 w-8 animate-spin" />
+              </div>
+            )}
+          </>
         )}
+        <canvas ref={canvasRef} className="hidden" />
       </div>
+
+      {(status === 'ready' || status === 'reading') && (
+        <div className="space-y-3 p-4" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
+          {hint && (
+            <Alert variant="warning" className="mx-auto max-w-md">
+              {hint}
+            </Alert>
+          )}
+          <p className="text-center text-xs text-white/60">Cadrez uniquement la plaque dans le rectangle.</p>
+          <Button variant="success" size="lg" fullWidth className="mx-auto max-w-md" onClick={capture} loading={status === 'reading'} icon={<Camera className="h-5 w-5" />}>
+            {status === 'reading' ? 'Lecture en cours…' : 'Lire la plaque'}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
