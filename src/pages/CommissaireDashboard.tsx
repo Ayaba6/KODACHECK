@@ -7,6 +7,8 @@ import {
   FileText,
   Radio,
   RefreshCw,
+  Ban,
+  UserCheck,
   UserMinus,
   UserPlus,
   Users,
@@ -123,6 +125,7 @@ export default function CommissaireDashboard() {
   const [tab, setTab] = useState<'STOLEN' | 'RECOVERED'>('STOLEN');
   const [selected, setSelected] = useState<StolenVehicle | null>(null);
   const [toRemove, setToRemove] = useState<Profile | null>(null);
+  const [toToggle, setToToggle] = useState<Profile | null>(null);
   const [created, setCreated] = useState<CreatedAccount | null>(null);
 
   const load = useCallback(async () => {
@@ -160,9 +163,30 @@ export default function CommissaireDashboard() {
       return;
     }
     setAgents((list) => list.filter((a) => a.id !== toRemove.id));
-    toast.success('Agent retiré', `${toRemove.full_name ?? 'L\'agent'} n'est plus rattaché à votre commissariat.`);
+    toast.success('Agent retiré', `${toRemove.full_name ?? 'L\'agent'} n'est plus rattaché à votre commissariat et son compte est désactivé.`);
     setToRemove(null);
   };
+
+  /** Désactive (accès coupé immédiatement) ou réactive un agent. */
+  const handleToggleActive = async () => {
+    if (!toToggle) return;
+    const nextActive = toToggle.active === false;
+    const { error: err } = await supabase.rpc('set_account_active', { p_user_id: toToggle.id, p_active: nextActive });
+    if (err) {
+      toast.error(nextActive ? 'Réactivation impossible' : 'Désactivation impossible', getErrorMessage(err));
+      return;
+    }
+    setAgents((list) => list.map((a) => (a.id === toToggle.id ? { ...a, active: nextActive } : a)));
+    toast.success(
+      nextActive ? 'Compte réactivé' : 'Compte désactivé',
+      nextActive
+        ? `${toToggle.full_name ?? "L'agent"} peut de nouveau utiliser KodaCheck.`
+        : `${toToggle.full_name ?? "L'agent"} n'a plus accès à KodaCheck, avec effet immédiat.`,
+    );
+    setToToggle(null);
+  };
+
+  const activeAgents = agents.filter((a) => a.active !== false).length;
 
   const stolen = useMemo(() => vehicles.filter((v) => v.status !== 'RECOVERED'), [vehicles]);
   const recovered = useMemo(() => vehicles.filter((v) => v.status === 'RECOVERED'), [vehicles]);
@@ -197,7 +221,7 @@ export default function CommissaireDashboard() {
       )}
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatCard label="Agents rattachés" value={loading ? '…' : agents.length} icon={<Users className="h-5 w-5" />} tone="brand" />
+        <StatCard label="Agents actifs" value={loading ? "…" : activeAgents} hint={!loading && agents.length > activeAgents ? `${agents.length - activeAgents} désactivé(s)` : undefined} icon={<Users className="h-5 w-5" />} tone="brand" />
         <StatCard label="Engins recherchés" value={loading ? '…' : stolen.length} icon={<AlertTriangle className="h-5 w-5" />} tone="red" />
         <StatCard label="Engins retrouvés" value={loading ? '…' : recovered.length} icon={<CheckCircle2 className="h-5 w-5" />} tone="emerald" />
       </div>
@@ -225,21 +249,36 @@ export default function CommissaireDashboard() {
               <EmptyState icon={<Users className="h-5 w-5" />} title="Aucun agent" description="Créez le premier compte agent avec le formulaire." />
             ) : (
               <ul className="divide-y divide-slate-200 dark:divide-slate-800">
-                {agents.map((agent) => (
-                  <li key={agent.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                      {(agent.full_name ?? '?').slice(0, 1).toUpperCase()}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{agent.full_name ?? 'Agent'}</p>
-                      <p className="truncate font-mono text-xs text-slate-500 dark:text-slate-400">{agent.badge_number ?? agent.email}</p>
-                    </div>
-                    <RoleBadge role={agent.role} />
-                    <IconButton label={`Retirer ${agent.full_name ?? 'cet agent'}`} tone="danger" onClick={() => setToRemove(agent)}>
-                      <UserMinus className="h-4 w-4" />
-                    </IconButton>
-                  </li>
-                ))}
+                {agents.map((agent) => {
+                  const inactive = agent.active === false;
+                  return (
+                    <li key={agent.id} className={`flex items-center gap-3 py-3 first:pt-0 last:pb-0 ${inactive ? 'opacity-60' : ''}`}>
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                        {(agent.full_name ?? '?').slice(0, 1).toUpperCase()}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{agent.full_name ?? 'Agent'}</p>
+                        <p className="truncate font-mono text-xs text-slate-500 dark:text-slate-400">{agent.badge_number ?? agent.email}</p>
+                      </div>
+                      {inactive ? (
+                        <Badge tone="neutral" icon={<Ban className="h-3 w-3" />}>
+                          Désactivé
+                        </Badge>
+                      ) : (
+                        <RoleBadge role={agent.role} />
+                      )}
+                      <IconButton
+                        label={inactive ? `Réactiver ${agent.full_name ?? 'cet agent'}` : `Désactiver ${agent.full_name ?? 'cet agent'}`}
+                        onClick={() => setToToggle(agent)}
+                      >
+                        {inactive ? <UserCheck className="h-4 w-4 text-emerald-600" /> : <Ban className="h-4 w-4" />}
+                      </IconButton>
+                      <IconButton label={`Retirer ${agent.full_name ?? 'cet agent'}`} tone="danger" onClick={() => setToRemove(agent)}>
+                        <UserMinus className="h-4 w-4" />
+                      </IconButton>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
@@ -310,14 +349,34 @@ export default function CommissaireDashboard() {
         title="Retirer cet agent ?"
         description={
           <>
-            <strong>{toRemove?.full_name}</strong> ne sera plus rattaché à votre commissariat. Son compte reste actif : demandez à
-            l'administrateur de le désactiver si nécessaire.
+            Le compte de <strong>{toRemove?.full_name}</strong> sera détaché de votre commissariat et désactivé.
+            Il disparaîtra de votre liste ; seul l'administrateur pourra le réaffecter.
           </>
         }
         confirmLabel="Retirer"
         tone="danger"
         onConfirm={handleRemove}
         onClose={() => setToRemove(null)}
+      />
+      <ConfirmDialog
+        open={Boolean(toToggle)}
+        title={toToggle?.active === false ? 'Réactiver ce compte ?' : 'Désactiver ce compte ?'}
+        description={
+          toToggle?.active === false ? (
+            <>
+              <strong>{toToggle?.full_name}</strong> pourra de nouveau se connecter et consulter le registre.
+            </>
+          ) : (
+            <>
+              Accès de <strong>{toToggle?.full_name}</strong> coupé immédiatement, y compris en cours de session.
+              Vous pourrez le réactiver à tout moment.
+            </>
+          )
+        }
+        confirmLabel={toToggle?.active === false ? 'Réactiver' : 'Désactiver'}
+        tone={toToggle?.active === false ? 'primary' : 'danger'}
+        onConfirm={handleToggleActive}
+        onClose={() => setToToggle(null)}
       />
       <AccountCreatedModal account={created} onClose={() => setCreated(null)} />
     </DashboardLayout>

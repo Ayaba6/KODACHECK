@@ -41,3 +41,16 @@ echo "Déclaration citoyenne (fonction contrôlée, données volontairement inva
 resp=$(curl -s --max-time 20 -X POST "$URL/rest/v1/rpc/declare_stolen_vehicle" "${H[@]}" -H "Content-Type: application/json" \
   -d '{"p_plate_number":"","p_vin":"","p_brand":"","p_model":"","p_color":"","p_owner_name":"","p_owner_phone":"","p_commissariat_id":null,"p_stolen_date":null}')
 echo "  réponse : $(echo "$resp" | grep -o '"message":"[^"]*"' | cut -d'"' -f4)  (attendu : « Indiquez la plaque ou le numéro de châssis. »)"
+
+echo "Fonctions réservées aux comptes connectés :"
+for fn in set_account_active remove_agent_from_commissariat; do
+  resp=$(curl -s --max-time 20 -X POST "$URL/rest/v1/rpc/$fn" "${H[@]}" -H "Content-Type: application/json" \
+    -d '{"p_user_id":"00000000-0000-0000-0000-000000000000","p_active":false,"p_agent_id":"00000000-0000-0000-0000-000000000000"}')
+  code=$(echo "$resp" | grep -o '"code":"[^"]*"' | head -1 | cut -d'"' -f4)
+  case "$code" in
+    42501) v="refusée" ;;
+    PGRST202) v="refusée (fonction invisible pour un visiteur)" ;;
+    *) v="réponse : ${code:-$resp}" ;;
+  esac
+  printf '  %-31s appel anonyme : %s (attendu : refusée)\n' "$fn" "$v"
+done

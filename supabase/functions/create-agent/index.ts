@@ -71,10 +71,12 @@ Deno.serve(async (req) => {
 
   const { data: caller, error: callerError } = await admin
     .from('profiles')
-    .select('role, commissariat_id')
+    .select('role, commissariat_id, active')
     .eq('id', userData.user.id)
     .single();
   if (callerError || !caller) return json({ error: 'Profil appelant introuvable.' }, 403);
+  // Compte désactivé : plus aucun droit (la colonne n'existe qu'après la migration de désactivation)
+  if (caller.active === false) return json({ error: 'Votre compte est désactivé.' }, 403);
 
   const callerRole = normalizeRole(caller.role);
 

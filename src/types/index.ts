@@ -18,6 +18,9 @@ export interface Profile {
   role: string | null;
   commissariat_id: string | null;
   badge_number: string | null;
+  /** false = compte désactivé (plus aucun accès). */
+  active?: boolean;
+  deactivated_at?: string | null;
   created_at?: string;
   commissariats?: Pick<Commissariat, 'id' | 'nom' | 'code'> | null;
 }
