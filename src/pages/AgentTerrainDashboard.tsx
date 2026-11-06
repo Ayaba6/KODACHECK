@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { AlertTriangle, Bell, Camera, CheckCircle2, ChevronRight, CloudOff, HelpCircle, RefreshCw, Search, ShieldAlert, Wifi, X } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { useStolenRegistry } from '../hooks/useStolenRegistry';
+import { useOcrReadiness } from '../hooks/useOcrReadiness';
 import { formatDate, vehicleLabel } from '../lib/utils';
 import { compactPlate, describePlate, extractSerial, isCompletePlate, platesMatch } from '../utils/plateUtils';
 import type { StolenVehicle } from '../types';
@@ -125,6 +126,7 @@ export default function AgentTerrainDashboard() {
   );
 
   const { online, results, loading, syncing, lastSync, localCount, sync } = useStolenRegistry(term, onNewAlert);
+  const ocr = useOcrReadiness(online);
 
   const handleSync = async () => {
     const count = await sync();
@@ -175,6 +177,8 @@ export default function AgentTerrainDashboard() {
           <span className="flex-1">
             {online ? 'Connecté au registre national.' : 'Mode hors-ligne : recherche dans la copie locale.'} Base locale :{' '}
             <strong>{localCount ?? '…'}</strong> engins, synchronisée {relativeSync(lastSync)}.
+            {ocr === 'ready' && <span className="block text-emerald-600 dark:text-emerald-400">Lecteur de plaques prêt hors-ligne.</span>}
+            {ocr === 'preparing' && <span className="block">Préparation du lecteur de plaques pour le hors-ligne…</span>}
           </span>
           {online && (
             <Button size="sm" variant="ghost" onClick={handleSync} loading={syncing} icon={<RefreshCw className="h-3.5 w-3.5" />}>

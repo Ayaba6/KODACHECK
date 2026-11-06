@@ -5,6 +5,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { ROLE_LABELS } from '../../lib/utils';
 import { ConfirmDialog, IconButton } from '../ui';
 import { Logo } from './Logo';
+import { InstallButton, OfflineBanner } from '../pwa/Pwa';
 
 export function ThemeToggle() {
   const { isDark, toggleTheme } = useTheme();
@@ -43,6 +44,7 @@ export function DashboardLayout({ title, nav, actions, children }: DashboardLayo
   return (
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/85 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/85">
+        <OfflineBanner />
         <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:px-6">
           <Logo size="sm" className="shrink-0" />
           <span className="hidden h-6 w-px bg-slate-200 sm:block dark:bg-slate-800" />
@@ -59,6 +61,7 @@ export function DashboardLayout({ title, nav, actions, children }: DashboardLayo
 
           <div className="ml-auto flex items-center gap-2">
             {actions}
+            <InstallButton compact />
             <ThemeToggle />
             <div className="hidden items-center gap-2.5 border-l border-slate-200 pl-3 md:flex dark:border-slate-800">
               <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-100 text-xs font-bold text-brand-700 dark:bg-brand-500/20 dark:text-brand-300">

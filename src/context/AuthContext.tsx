@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { normalizeRole } from '../lib/utils';
+import { clearLocalRegistry } from '../lib/syncService';
 import type { Profile, Role } from '../types';
 
 interface AuthContextValue {
@@ -16,6 +17,28 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+const PROFILE_CACHE_KEY = 'kodacheck:profile';
+
+/** Dernier profil connu, pour ouvrir l'application sans réseau (agents de terrain). */
+function readCachedProfile(userId: string): Profile | null {
+  try {
+    const raw = localStorage.getItem(PROFILE_CACHE_KEY);
+    const cached = raw ? (JSON.parse(raw) as Profile) : null;
+    return cached?.id === userId ? cached : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedProfile(profile: Profile | null) {
+  try {
+    if (profile) localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(profile));
+    else localStorage.removeItem(PROFILE_CACHE_KEY);
+  } catch {
+    /* stockage indisponible */
+  }
+}
 
 async function loadProfile(userId: string): Promise<Profile> {
   const { data, error } = await supabase
@@ -41,12 +64,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      setProfile(await loadProfile(nextSession.user.id));
+      const fresh = await loadProfile(nextSession.user.id);
+      writeCachedProfile(fresh);
+      setProfile(fresh);
       setProfileError(null);
     } catch (err) {
-      console.error('Erreur lors du chargement du profil :', err);
-      setProfile(null);
-      setProfileError("Impossible de charger votre profil. Vérifiez votre connexion puis réessayez.");
+      // Sans réseau, on reprend le dernier profil connu de cet utilisateur
+      const cached = readCachedProfile(nextSession.user.id);
+      if (cached) {
+        setProfile(cached);
+        setProfileError(null);
+      } else {
+        console.error('Erreur lors du chargement du profil :', err);
+        setProfile(null);
+        setProfileError(
+          navigator.onLine
+            ? 'Impossible de charger votre profil. Vérifiez votre connexion puis réessayez.'
+            : 'Vous êtes hors-ligne. Connectez-vous une première fois avec du réseau pour utiliser KodaCheck hors-ligne.',
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -82,7 +118,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [session, syncProfile]);
 
   const signOut = useCallback(async () => {
-    await supabase.auth.signOut();
+    writeCachedProfile(null);
+    // Le registre local contient des données personnelles (propriétaires) : on l'efface à la
+    // déconnexion, l'appareil pouvant être partagé entre agents.
+    await clearLocalRegistry();
+    // Hors-ligne, la déconnexion serveur échoue : on efface au moins la session locale
+    const { error } = await supabase.auth.signOut();
+    if (error) await supabase.auth.signOut({ scope: 'local' });
   }, []);
 
   return (

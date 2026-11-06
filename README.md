@@ -46,6 +46,19 @@ supabase functions deploy create-agent --project-ref <ref-du-projet>
 
 `SUPABASE_URL`, `SUPABASE_ANON_KEY` et `SUPABASE_SERVICE_ROLE_KEY` sont fournies automatiquement par Supabase.
 
+## Application installable et hors-ligne (PWA)
+
+- **Coquille** (pages, code, icônes, ~950 Ko) : pré-téléchargée par le service worker (`vite-plugin-pwa`).
+- **Lecteur de plaques** (`public/ocr`, ~7 Mo téléchargés par appareil) : mis en cache à la première utilisation ;
+  l'espace terrain le prépare automatiquement en arrière-plan quand le réseau est disponible.
+- **Données** : jamais mises en cache par le service worker ; le registre hors-ligne est la base locale
+  (IndexedDB) synchronisée par l'application, effacée à la déconnexion.
+- **Profil** : dernier profil connu conservé localement pour ouvrir l'application sans réseau.
+- **Mises à jour** : proposées par un bandeau, appliquées à la demande de l'agent.
+
+Le service worker n'existe qu'en production : tester avec `npm run build` puis `npm run preview`.
+L'hébergement doit servir l'application en **https** (obligatoire pour le service worker et la caméra).
+
 ## Structure
 
 ```
