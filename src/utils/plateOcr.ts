@@ -227,17 +227,180 @@ export interface OcrAttempt {
   rawText: string;
 }
 
-/** Lit une image préparée et en extrait la plaque. */
-export async function readPlate(worker: Worker, canvas: HTMLCanvasElement): Promise<OcrAttempt> {
-  // On passe une image PNG déjà encodée : avec un canvas, tesseract.js appelle canvas.toBlob(),
-  // que Chrome peut différer d'environ 1 s quand la page ne se redessine pas (≈ 70 ms au lieu de 1,1 s).
+/**
+ * Réglages de lecture. Les plaques BF utilisent une police étroite que le modèle généraliste lit mal :
+ * on ramène chaque ligne à une hauteur standard et on l'élargit légèrement. Les variantes sont
+ * utilisées à tour de rôle d'une image à l'autre : les erreurs changent, la bonne lecture se répète.
+ */
+export const READ_VARIANTS = [
+  { lineHeight: 56, stretch: 1 },
+  { lineHeight: 72, stretch: 1.3 },
+  { lineHeight: 44, stretch: 1.15 },
+] as const;
+export type ReadVariant = (typeof READ_VARIANTS)[number];
+
+/**
+ * Repère les lignes de texte d'une image binarisée (texte noir sur blanc).
+ * On regroupe les caractères (composantes connexes) selon leur bord supérieur : sur les plaques
+ * réelles, une tache ou les empattements des « 1 » relient souvent les deux lignes, ce qui rend
+ * inutilisable une simple recherche de bande vide entre elles.
+ */
+export function findTextLines(canvas: HTMLCanvasElement): Region[] {
+  const W = canvas.width;
+  const H = canvas.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx || !W || !H) return [];
+  const data = ctx.getImageData(0, 0, W, H).data;
+  const ink = new Uint8Array(W * H);
+  for (let p = 0, i = 0; p < ink.length; p++, i += 4) ink[p] = data[i] < 128 ? 1 : 0;
+
+  // Composantes connexes (4-voisinage)
+  const boxes: Array<{ x0: number; y0: number; x1: number; y1: number; area: number; id: number }> = [];
+  const label = new Int32Array(ink.length).fill(-1);
+  const seen = new Uint8Array(ink.length);
+  const stack = new Int32Array(ink.length);
+  for (let start = 0; start < ink.length; start++) {
+    if (!ink[start] || seen[start]) continue;
+    let top = 0;
+    stack[top++] = start;
+    seen[start] = 1;
+    let x0 = W, y0 = H, x1 = 0, y1 = 0, area = 0;
+    while (top > 0) {
+      const p = stack[--top];
+      label[p] = boxes.length;
+      area++;
+      const x = p % W;
+      const y = (p - x) / W;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+      const neighbours = [x > 0 ? p - 1 : -1, x < W - 1 ? p + 1 : -1, y > 0 ? p - W : -1, y < H - 1 ? p + W : -1];
+      for (const q of neighbours) {
+        if (q >= 0 && ink[q] && !seen[q]) {
+          seen[q] = 1;
+          stack[top++] = q;
+        }
+      }
+    }
+    boxes.push({ x0, y0, x1, y1, area, id: boxes.length });
+  }
+
+  // Caractères probables : on écarte les petites marques (vis, poussière, « BF » miniature)
+  const heights = boxes.map((b) => b.y1 - b.y0 + 1).sort((a, b) => b - a);
+  const refHeight = heights[Math.min(2, heights.length - 1)] ?? 0;
+  const chars = boxes.filter((b) => b.y1 - b.y0 + 1 >= refHeight * 0.45);
+  if (chars.length === 0) return [];
+  const isChar = new Uint8Array(boxes.length);
+  for (const b of chars) isChar[b.id] = 1;
+
+  const median = (values: number[]) => {
+    const s = [...values].sort((a, b) => a - b);
+    return s[Math.floor(s.length / 2)];
+  };
+  const charHeight = median(chars.map((b) => b.y1 - b.y0 + 1));
+
+  // Regroupement par bord supérieur : on coupe au plus grand écart s'il dépasse 40 % d'un caractère
+  const sorted = [...chars].sort((a, b) => a.y0 - b.y0);
+  let cut = -1;
+  let gap = 0;
+  for (let i = 1; i < sorted.length; i++) {
+    const d = sorted[i].y0 - sorted[i - 1].y0;
+    if (d > gap) {
+      gap = d;
+      cut = i;
+    }
+  }
+  const groups = gap > charHeight * 0.4 && cut > 0 ? [sorted.slice(0, cut), sorted.slice(cut)] : [sorted];
+
+  return groups
+    .filter((g) => g.length > 0)
+    .map((g) => {
+      // Hauteur de ligne robuste : médiane des bords, pour qu'un caractère soudé à une tache
+      // n'agrandisse pas la ligne jusque dans la suivante.
+      const margin = Math.round(charHeight * 0.08);
+      const y0 = Math.max(0, median(g.map((b) => b.y0)) - margin);
+      const y1 = Math.min(H - 1, median(g.map((b) => b.y1)) + margin);
+      // Étendue horizontale mesurée dans la bande elle-même : un caractère de la ligne du dessous
+      // soudé (par une tache) à un caractère du dessus doit compter pour sa propre ligne.
+      let x0 = W;
+      let x1 = -1;
+      for (let y = y0; y <= y1; y++) {
+        for (let x = 0, p = y * W; x < W; x++, p++) {
+          if (label[p] >= 0 && isChar[label[p]]) {
+            if (x < x0) x0 = x;
+            if (x > x1) x1 = x;
+          }
+        }
+      }
+      x0 = Math.max(0, x0 - margin);
+      x1 = Math.min(W - 1, x1 + margin);
+      return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+    })
+    .filter((r) => r.w > 10 && r.h > 8);
+}
+
+
+/** Redimensionne une ligne à la hauteur voulue, l'élargit et l'entoure de blanc. */
+function renderLine(source: HTMLCanvasElement, r: Region, { lineHeight, stretch }: ReadVariant): HTMLCanvasElement {
+  const pad = 14;
+  const w = Math.round(r.w * (lineHeight / r.h) * stretch);
+  const c = document.createElement('canvas');
+  c.width = w + pad * 2;
+  c.height = lineHeight + pad * 2;
+  const ctx = c.getContext('2d');
+  if (ctx) {
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(source, r.x, r.y, r.w, r.h, pad, pad, w, lineHeight);
+  }
+  return c;
+}
+
+const currentPsm = new WeakMap<Worker, string>();
+async function setPsm(worker: Worker, psm: PSM) {
+  if (currentPsm.get(worker) === psm) return;
+  await worker.setParameters({ tessedit_pageseg_mode: psm });
+  currentPsm.set(worker, psm);
+}
+
+/**
+ * Envoie une image au moteur. On passe un PNG déjà encodé : avec un canvas, tesseract.js appelle
+ * canvas.toBlob(), que Chrome peut différer d'environ 1 s quand la page ne se redessine pas.
+ */
+async function recognize(worker: Worker, canvas: HTMLCanvasElement) {
   const { data } = await worker.recognize(canvas.toDataURL('image/png'));
+  return data;
+}
+
+/** Lit une image préparée (binarisée) : ligne par ligne si possible, sinon en bloc. */
+export async function readPlate(worker: Worker, canvas: HTMLCanvasElement, variant: ReadVariant = READ_VARIANTS[0]): Promise<OcrAttempt> {
+  const lines = findTextLines(canvas);
+
+  if (lines.length > 0 && lines.length <= 2) {
+    await setPsm(worker, PSM.SINGLE_LINE);
+    const texts: string[] = [];
+    let confidence = 0;
+    for (const line of lines) {
+      const data = await recognize(worker, renderLine(canvas, line, variant));
+      texts.push(data.text.trim());
+      confidence += data.confidence;
+    }
+    const rawText = texts.join('\n');
+    const reading = parsePlate(rawText);
+    if (reading?.strong) return { reading, confidence: confidence / lines.length, rawText };
+  }
+
+  // Repli : lecture du bloc entier
+  await setPsm(worker, PSM.SINGLE_BLOCK);
+  const data = await recognize(worker, canvas);
   return { reading: parsePlate(data.text), confidence: data.confidence, rawText: data.text };
 }
 
 /**
- * Prépare et lit une zone ; si aucune plaque reconnue, retente avec la polarité inverse
- * (plaques claires sur fond sombre, reflets…).
+ * Lecture approfondie (capture manuelle) : essaie les variantes et les deux polarités
+ * jusqu'à obtenir une plaque au format reconnu.
  */
 export async function scanRegion(
   worker: Worker,
@@ -245,12 +408,14 @@ export async function scanRegion(
   region: Region,
   work: HTMLCanvasElement,
 ): Promise<OcrAttempt> {
-  preprocessRegion(source, region, work);
-  const first = await readPlate(worker, work);
-  if (first.reading?.strong) return first;
-
-  preprocessRegion(source, region, work, { flipPolarity: true });
-  const second = await readPlate(worker, work);
-  if (second.reading?.strong) return second;
-  return (second.reading && !first.reading) ? second : first;
+  let best: OcrAttempt | null = null;
+  for (const flipPolarity of [false, true]) {
+    preprocessRegion(source, region, work, { flipPolarity });
+    for (const variant of READ_VARIANTS) {
+      const attempt = await readPlate(worker, work, variant);
+      if (attempt.reading?.strong) return attempt;
+      if (!best?.reading && attempt.reading) best = attempt;
+    }
+  }
+  return best ?? { reading: null, confidence: 0, rawText: '' };
 }

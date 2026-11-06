@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { Worker } from 'tesseract.js';
 import { Camera, CameraOff, Flashlight, FlashlightOff, Keyboard, Loader2, RotateCcw, Search, X, ZoomIn } from 'lucide-react';
 import { compactPlate, describePlate, type PlateReading } from '../utils/plateUtils';
-import { createPlateWorker, mapOverlayToVideo, preprocessRegion, readPlate, scanRegion } from '../utils/plateOcr';
+import { createPlateWorker, mapOverlayToVideo, preprocessRegion, READ_VARIANTS, readPlate, scanRegion, type ReadVariant } from '../utils/plateOcr';
+import { PlateVote } from '../utils/plateVote';
 import { cn } from '../lib/utils';
 import { Button } from './ui';
 
@@ -15,8 +16,6 @@ type Phase = 'starting' | 'scanning' | 'confirm' | 'denied' | 'unsupported' | 'e
 
 /** Délai entre deux lectures automatiques. */
 const SCAN_INTERVAL_MS = 250;
-/** Au-delà, une lecture isolée suffit (sinon il faut deux lectures identiques). */
-const HIGH_CONFIDENCE = 85;
 /** Après ce délai sans résultat, des conseils s'affichent. */
 const HINT_AFTER_MS = 10000;
 
@@ -130,7 +129,9 @@ export default function CameraScanner({ onScanComplete, onClose }: CameraScanner
    * en capture manuelle (`thorough`), deux passes avec les deux polarités.
    */
   const scanOnce = useCallback(
-    async (opts: { flipPolarity?: boolean; thorough?: boolean } = {}): Promise<{ reading: PlateReading | null; confidence: number } | null> => {
+    async (
+      opts: { flipPolarity?: boolean; thorough?: boolean; variant?: ReadVariant } = {},
+    ): Promise<{ reading: PlateReading | null; confidence: number } | null> => {
       const video = videoRef.current;
       const overlay = overlayRef.current;
       const canvas = workCanvas.current;
@@ -141,7 +142,7 @@ export default function CameraScanner({ onScanComplete, onClose }: CameraScanner
       if (region.w < 20 || region.h < 10) return null;
       if (opts.thorough) return scanRegion(worker, video, region, canvas);
       preprocessRegion(video, region, canvas, { flipPolarity: opts.flipPolarity });
-      return readPlate(worker, canvas);
+      return readPlate(worker, canvas, opts.variant);
     },
     [],
   );
@@ -174,11 +175,13 @@ export default function CameraScanner({ onScanComplete, onClose }: CameraScanner
   useEffect(() => {
     if (phase !== 'scanning' || !engineReady) return;
     let cancelled = false;
-    // Dernière lecture valide, pour exiger deux lectures concordantes à moins de 3 s d'intervalle
-    let previous = null as { key: string; at: number } | null;
-    // On alterne la polarité tant que rien n'est lu (plaques claires sur fond sombre),
-    // et on la garde dès qu'une lecture aboutit.
+    const vote = new PlateVote();
+    // Chaque image est lue avec une variante différente (taille, élargissement) : les erreurs varient,
+    // la bonne lecture se répète et l'emporte au vote.
+    let frame = 0;
+    // Polarité inversée après un cycle complet de variantes sans résultat (plaques claires sur fond sombre)
     let flipPolarity = false;
+    let misses = 0;
     const hintTimer = setTimeout(() => setShowHint(true), HINT_AFTER_MS);
 
     (async () => {
@@ -187,25 +190,26 @@ export default function CameraScanner({ onScanComplete, onClose }: CameraScanner
         if (cancelled || document.hidden || busyRef.current) continue;
         busyRef.current = true;
         try {
-          const result = await scanOnce({ flipPolarity });
+          const variant = READ_VARIANTS[frame++ % READ_VARIANTS.length];
+          const result = await scanOnce({ flipPolarity, variant });
           if (cancelled) return;
           const reading = result?.reading;
           if (!reading?.strong) {
-            if (reading) setLastGuess(reading.plate);
-            flipPolarity = !flipPolarity;
+            if (reading && !vote.leader()) setLastGuess(reading.plate);
+            if (++misses >= READ_VARIANTS.length) {
+              flipPolarity = !flipPolarity;
+              misses = 0;
+            }
             continue;
           }
-          setLastGuess(reading.plate);
-          const key = compactPlate(reading.plate);
-          const now = Date.now();
-          const confirmed = previous?.key === key && now - previous.at < 3000;
-          // Validation : deux lectures identiques, ou une lecture très nette
-          if (confirmed || (result?.confidence ?? 0) >= HIGH_CONFIDENCE) {
+          misses = 0;
+          const winner = vote.add(reading.plate, result?.confidence ?? 0);
+          setLastGuess(vote.leader());
+          if (winner) {
             cancelled = true;
-            goToConfirm(reading.plate);
+            goToConfirm(winner);
             return;
           }
-          previous = { key, at: now };
         } catch (err) {
           console.warn('Lecture OCR échouée :', err);
         } finally {
@@ -308,7 +312,7 @@ export default function CameraScanner({ onScanComplete, onClose }: CameraScanner
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6">
           <div
             ref={overlayRef}
-            className="relative aspect-[2/1] w-full max-w-md rounded-xl shadow-[0_0_0_9999px_rgba(0,0,0,0.6)]"
+            className="relative aspect-[3/2] w-full max-w-md rounded-xl shadow-[0_0_0_9999px_rgba(0,0,0,0.6)]"
           >
             {(['left-0 top-0 border-l-4 border-t-4 rounded-tl-xl', 'right-0 top-0 border-r-4 border-t-4 rounded-tr-xl', 'bottom-0 left-0 border-b-4 border-l-4 rounded-bl-xl', 'bottom-0 right-0 border-b-4 border-r-4 rounded-br-xl'] as const).map((pos) => (
               <span key={pos} className={cn('absolute h-7 w-7 border-emerald-400', pos)} />
@@ -327,7 +331,7 @@ export default function CameraScanner({ onScanComplete, onClose }: CameraScanner
         )}
 
         {phase === 'scanning' && engineReady && (
-          <div className="absolute inset-x-0 top-[calc(50%+min(25vw,7rem)+1.25rem)] flex justify-center px-6">
+          <div className="absolute inset-x-0 bottom-4 flex justify-center px-6">
             <p className="rounded-full bg-black/70 px-3 py-1.5 text-center text-xs text-white/90">
               {lastGuess ? (
                 <>

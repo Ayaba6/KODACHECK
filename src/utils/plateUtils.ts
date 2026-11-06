@@ -9,6 +9,11 @@
  *   - code de région 01 à 13.
  * Forme canonique utilisée dans KodaCheck : « 0029 D1 08 ».
  *
+ * Deux-roues (deux lignes) :   4131        8730
+ *                            BF 5X 03    BF 2DJ 03
+ *   - n° d'ordre sur 4 chiffres ; chiffre + 1-2 lettres ; code de région.
+ * Forme canonique : « 4131 5X 03 ».
+ *
  * Ancien format, encore en circulation : « 11 GH 1234 ».
  */
 
@@ -46,12 +51,25 @@ const CATEGORY_FIX: Record<string, string> = { '1': 'T', I: 'T', '7': 'T', Y: 'T
 
 const toDigits = (s: string) => [...s].map((c) => TO_DIGIT[c] ?? c).join('');
 const toLetters = (s: string) => [...s].map((c) => TO_LETTER[c] ?? c).join('');
-const isRegion = (code: string) => code in BF_REGIONS;
+const isRegion = (code: string | null): code is string => code !== null && code in BF_REGIONS;
+
+/** Lectures possibles de chaque caractère dans un code région (ex : G = 0 ou 6). */
+const REGION_CHAR: Record<string, string[]> = { O: ['0'], Q: ['0'], D: ['0'], U: ['0'], G: ['0', '6'], C: ['0'], I: ['1'], L: ['1'], T: ['1'], J: ['1'], Z: ['2'], S: ['5'], B: ['8'], A: ['4'] };
+
+/** Code région valide (01-13) correspondant à 2 caractères lus, en tenant compte des confusions. */
+function toRegion(two: string): string | null {
+  const opts = [...two].map((c) => (/[0-9]/.test(c) ? [c] : REGION_CHAR[c] ?? []));
+  for (const a of opts[0] ?? []) for (const b of opts[1] ?? []) if (isRegion(a + b)) return a + b;
+  return null;
+}
 
 export interface PlateParts {
+  /** auto : « 0029 D1 08 » · moto : « 4131 5X 03 » */
+  kind: 'auto' | 'moto';
   serial: string;
+  /** Lettres : catégorie (auto) ou série alphabétique (moto). */
   category: string;
-  /** Indice de série (le petit chiffre après la catégorie), souvent illisible à distance. */
+  /** Auto : petit indice après la catégorie, souvent illisible. Moto : chiffre devant les lettres. */
   series: string | null;
   region: string;
 }
@@ -66,18 +84,44 @@ export interface PlateReading {
 }
 
 export function formatParts(p: PlateParts): string {
-  return `${p.serial} ${p.category}${p.series ?? ''} ${p.region}`;
+  return p.kind === 'moto'
+    ? `${p.serial} ${p.series ?? ''}${p.category} ${p.region}`
+    : `${p.serial} ${p.category}${p.series ?? ''} ${p.region}`;
 }
 
 /** Caractère pouvant être un chiffre mal lu. */
 const D = '[0-9OQDUILTJZSBGA]';
 
 /**
- * Bloc « catégorie + indice + région » lu d'un seul tenant, ex : D108, CD09, WW101, D08.
- * Les lettres de catégorie sont parfois lues comme des chiffres (D→0), d'où la conversion.
+ * Deuxième ligne d'une plaque de deux-roues : chiffre + 1-2 lettres + région, ex : 5X03, 2DJ03.
+ * Le chiffre de tête doit être lu comme un vrai chiffre et les lettres contenir au moins une vraie
+ * lettre : cela évite de confondre avec une plaque auto dont la catégorie aurait été lue « 1 » (T1 10).
+ */
+function parseMotoSecondLine(s: string): Omit<PlateParts, 'serial'> | null {
+  for (const letters of [2, 1]) {
+    const len = 1 + letters + 2;
+    for (let start = s.length - len; start >= 0; start--) {
+      const chunk = s.slice(start, start + len);
+      const series = chunk[0];
+      const rawLetters = chunk.slice(1, 1 + letters);
+      const category = toLetters(rawLetters);
+      const region = toRegion(chunk.slice(1 + letters));
+      if (!/^[1-9]$/.test(series) || !/[A-Z]/.test(rawLetters)) continue;
+      if (!/^[A-Z]+$/.test(category) || !isRegion(region)) continue;
+      return { kind: 'moto', category, series, region };
+    }
+  }
+  return null;
+}
+
+/**
+ * Bloc « catégorie + indice + région » lu d'un seul tenant, ex : D108, CD09, WW101, D08 (auto),
+ * ou « chiffre + lettres + région » (deux-roues). Les lettres sont parfois lues comme des chiffres.
  */
 function parseSecondLine(raw: string): Omit<PlateParts, 'serial'> | null {
   const s = raw.replace(/\s+/g, '');
+  const moto = parseMotoSecondLine(s);
+  if (moto) return moto;
   // Du plus long au plus court : 2 lettres + indice + région, 1 lettre + indice + région, sans indice…
   const attempts: Array<[number, number]> = [
     [2, 1],
@@ -93,11 +137,12 @@ function parseSecondLine(raw: string): Omit<PlateParts, 'serial'> | null {
       // Lettres de catégorie souvent confondues par l'OCR (T lu « 1 », D lu « 0 »…)
       if (letters === 1 && !(category in BF_CATEGORIES)) category = CATEGORY_FIX[chunk[0]] ?? category;
       const series = idx ? toDigits(chunk.slice(letters, letters + 1)) : null;
-      const region = toDigits(chunk.slice(letters + idx));
+      const region = toRegion(chunk.slice(letters + idx));
       if (!/^[A-Z]+$/.test(category) || !isRegion(region)) continue;
       if (series !== null && !/^[1-9]$/.test(series)) continue;
-      if (!(category in BF_CATEGORIES) && letters === 2) continue;
-      return { category, series, region };
+      // Plaques auto : seules les catégories officielles sont acceptées (évite « Z 01 » lu dans « 20J G3 »)
+      if (!(category in BF_CATEGORIES)) continue;
+      return { kind: 'auto', category, series, region };
     }
   }
   return null;
@@ -115,7 +160,11 @@ function ocrLines(raw: string): string[] {
 function parseBf(lines: string[]): PlateReading | null {
   // Le n° d'ordre : 4 caractères « chiffres » formant un bloc, de préférence sur la 1re ligne.
   for (let i = 0; i < lines.length; i++) {
-    const serialMatch = lines[i].match(new RegExp(`(?:^|\\s|[^0-9])(${D}{4})(?![0-9])`));
+    // Le drapeau, à gauche du n° d'ordre, est parfois lu comme un chiffre de plus (« 28730 ») :
+    // en début de ligne on tolère un caractère parasite devant les 4 chiffres.
+    const serialMatch =
+      lines[i].match(new RegExp(`(?:^|\\s|[^0-9])(${D}{4})(?![0-9])`)) ??
+      lines[i].match(new RegExp(`^${D}(${D}{4})(?![0-9A-Z])`));
     if (!serialMatch) continue;
     const serial = toDigits(serialMatch[1]);
     if (!/^\d{4}$/.test(serial)) continue;
@@ -207,12 +256,12 @@ export function platesMatch(a: string | null | undefined, b: string | null | und
   const pa = parsePlate(ca)?.parts;
   const pb = parsePlate(cb)?.parts;
   if (!pa || !pb) return false;
-  return (
-    pa.serial === pb.serial &&
-    pa.category === pb.category &&
-    pa.region === pb.region &&
-    (pa.series === null || pb.series === null || pa.series === pb.series)
-  );
+  if (pa.kind !== pb.kind || pa.serial !== pb.serial || pa.category !== pb.category || pa.region !== pb.region) {
+    return false;
+  }
+  // L'indice manquant n'est toléré que sur les plaques auto (petit chiffre) ; sur les deux-roues
+  // le chiffre de tête est aussi grand que le reste et fait partie de l'immatriculation.
+  return pa.kind === 'auto' ? pa.series === null || pb.series === null || pa.series === pb.series : pa.series === pb.series;
 }
 
 /** Description lisible d'une plaque : catégorie et région d'immatriculation. */
@@ -221,7 +270,7 @@ export function describePlate(plate: string | null | undefined): { category?: st
   if (!parts) return null;
   const region = BF_REGIONS[parts.region];
   return {
-    category: BF_CATEGORIES[parts.category],
+    category: parts.kind === 'moto' ? 'Deux-roues' : BF_CATEGORIES[parts.category],
     region: region ? `${region.name} (${region.chefLieu})` : undefined,
   };
 }
