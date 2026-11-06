@@ -118,7 +118,8 @@ export function VehicleDetailsModal({ vehicle, onClose, onPrint, onMarkRecovered
               ) : null}
             </InfoRow>
             <InfoRow label="N° de PV" mono>
-              {vehicle.report_number ?? <span className="font-sans text-slate-500">Signalement citoyen</span>}
+              {vehicle.report_number ?? '—'}
+              {vehicle.source === 'citoyen' && <span className="ml-2 font-sans text-xs font-normal text-amber-600 dark:text-amber-400">déclaration citoyenne</span>}
             </InfoRow>
             <InfoRow label="Date du vol">{formatDate(vehicle.stolen_date)}</InfoRow>
             {vehicle.latitude != null && vehicle.longitude != null && (
