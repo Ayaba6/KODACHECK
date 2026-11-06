@@ -5,6 +5,7 @@ import App from './App';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
+import { PwaUpdater } from './components/pwa/Pwa';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Élément #root introuvable.');
@@ -15,6 +16,7 @@ createRoot(root).render(
       <ToastProvider>
         <AuthProvider>
           <App />
+          <PwaUpdater />
         </AuthProvider>
       </ToastProvider>
     </ThemeProvider>

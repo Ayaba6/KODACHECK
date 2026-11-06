@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useOnlineStatus } from './useOnlineStatus';
 import { supabase } from '../lib/supabase';
 import { localDb } from '../lib/db';
 import { getLastSync, syncVehiclesWithLocalDB } from '../lib/syncService';
@@ -6,20 +7,6 @@ import { sanitizeSearch, toIlikePattern } from '../lib/utils';
 import type { StolenVehicle } from '../types';
 import { extractSerial, isCompletePlate, normalizePlateInput, platesMatch } from '../utils/plateUtils';
 
-export function useOnlineStatus(): boolean {
-  const [online, setOnline] = useState(navigator.onLine);
-  useEffect(() => {
-    const up = () => setOnline(true);
-    const down = () => setOnline(false);
-    window.addEventListener('online', up);
-    window.addEventListener('offline', down);
-    return () => {
-      window.removeEventListener('online', up);
-      window.removeEventListener('offline', down);
-    };
-  }, []);
-  return online;
-}
 
 const compact = (s: string | null | undefined) => (s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
@@ -102,6 +89,9 @@ export function useStolenRegistry(searchTerm: string, onNewAlert?: (v: StolenVeh
     if (count !== null) {
       setLastSync(getLastSync());
       setLocalCount(count);
+    } else {
+      // Synchronisation impossible (réseau instable, session expirée) : on affiche ce qui est déjà en local
+      setLocalCount(await localDb.stolen_vehicles.count().catch(() => 0));
     }
     return count;
   }, []);

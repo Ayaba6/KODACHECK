@@ -44,3 +44,13 @@ export async function syncVehiclesWithLocalDB(): Promise<number | null> {
     return null;
   }
 }
+
+/** Efface la copie locale du registre (déconnexion). */
+export async function clearLocalRegistry(): Promise<void> {
+  try {
+    await localDb.stolen_vehicles.clear();
+    localStorage.removeItem(LAST_SYNC_KEY);
+  } catch {
+    /* base locale indisponible : rien à effacer */
+  }
+}

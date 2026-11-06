@@ -4,6 +4,7 @@ import { useAuth } from './context/AuthContext';
 import { AppFooter, ThemeToggle } from './components/layout/DashboardLayout';
 import { Logo, LogoMark } from './components/layout/Logo';
 import { Alert, Button } from './components/ui';
+import { InstallButton } from './components/pwa/Pwa';
 import LoginScreen from './pages/LoginScreen';
 import PublicLandingPage from './pages/PublicLandingPage';
 
@@ -54,6 +55,7 @@ function PublicShell() {
             <Logo size="sm" />
           </button>
           <div className="ml-auto flex items-center gap-2">
+            <InstallButton />
             {view === 'login' ? (
               <Button variant="outline" size="sm" icon={<Globe className="h-4 w-4 text-amber-500" />} onClick={() => setView('citoyen')}>
                 <span className="hidden sm:inline">Espace citoyen</span>
