@@ -1,20 +1,18 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Check, CheckCircle2, CreditCard, KeyRound, LocateFixed, MapPin, Share2 } from 'lucide-react';
+import { CreditCard, LocateFixed, Lock, MapPin } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { cn, getErrorMessage, todayISO } from '../lib/utils';
 import { BRAND_OPTIONS, COLOR_OPTIONS, VEHICLE_BRANDS } from '../lib/vehicleCatalog';
 import type { Commissariat } from '../types';
 import { normalizePlateInput } from '../utils/plateUtils';
+import { initPayment, saveSummary } from '../lib/citizenDeclaration';
 import { Alert, Button, Card, Input, Select } from '../components/ui';
+import { DeclarationStepper } from '../components/DeclarationStepper';
 
-/**
- * Le paiement Mobile Money n'est pas encore branché sur un opérateur :
- * tant que ce drapeau est actif, l'étape de paiement est simulée et signalée comme telle.
- */
-const PAYMENT_DEMO_MODE = true;
+/** Montant affiché ; le montant facturé est fixé côté serveur (secret DECLARATION_FEE). */
 const FEE_LABEL = '2 000 FCFA';
 
-type Step = 'form' | 'payment' | 'otp' | 'success';
+type Step = 'form' | 'payment';
 
 const EMPTY_FORM = {
   plate_number: '',
@@ -33,38 +31,7 @@ type Errors = Partial<Record<keyof FormState, string>>;
 
 const PHONE_RE = /^(\+?226)?\s*\d{2}(\s?\d{2}){3}$/;
 
-function Stepper({ step }: { step: Step }) {
-  const steps: { key: Step; label: string }[] = [
-    { key: 'form', label: 'Déclaration' },
-    { key: 'payment', label: 'Paiement' },
-    { key: 'success', label: 'Confirmation' },
-  ];
-  const index = step === 'otp' ? 1 : steps.findIndex((s) => s.key === step);
-  return (
-    <ol className="mb-6 flex items-center gap-2">
-      {steps.map((s, i) => (
-        <li key={s.key} className="flex flex-1 items-center gap-2">
-          <span
-            className={cn(
-              'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold',
-              i < index && 'bg-emerald-600 text-white',
-              i === index && 'bg-brand-600 text-white',
-              i > index && 'bg-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
-            )}
-          >
-            {i < index ? <Check className="h-4 w-4" /> : i + 1}
-          </span>
-          <span className={cn('hidden text-sm sm:block', i === index ? 'font-semibold text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400')}>
-            {s.label}
-          </span>
-          {i < steps.length - 1 && <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />}
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-export default function PublicDeclarerPage({ onDone }: { onDone: () => void }) {
+export default function PublicDeclarerPage() {
   const [step, setStep] = useState<Step>('form');
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [errors, setErrors] = useState<Errors>({});
@@ -79,8 +46,7 @@ export default function PublicDeclarerPage({ onDone }: { onDone: () => void }) {
   const [gpsState, setGpsState] = useState<'idle' | 'locating' | 'denied' | 'unsupported'>('idle');
 
   const [paymentPhone, setPaymentPhone] = useState('');
-  const [otp, setOtp] = useState('');
-  const [reportNumber, setReportNumber] = useState<string | null>(null);
+  const [email, setEmail] = useState('');
 
   useEffect(() => {
     loadCommissariats();
@@ -147,68 +113,56 @@ export default function PublicDeclarerPage({ onDone }: { onDone: () => void }) {
     }
   };
 
-  const handleRequestOtp = async (e: FormEvent) => {
+  /** Crée la déclaration (en attente) et ouvre la page de paiement sécurisée CinetPay. */
+  const handlePay = async (e: FormEvent) => {
     e.preventDefault();
-    if (!PHONE_RE.test(paymentPhone.trim())) return;
-    setLoading(true);
-    await new Promise((r) => setTimeout(r, 1000)); // Simulation de l'appel opérateur
-    setLoading(false);
-    setStep('otp');
-  };
-
-  const handleConfirm = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!/^\d{4,6}$/.test(otp)) return;
+    if (paymentPhone && !PHONE_RE.test(paymentPhone.trim())) return;
     setLoading(true);
     setSubmitError(null);
 
-    // Fonction contrôlée côté serveur : un visiteur n'a aucun accès direct au registre.
-    const { data, error } = await supabase.rpc('declare_stolen_vehicle', {
-      p_plate_number: normalizePlateInput(form.plate_number),
-      p_vin: form.vin.trim().toUpperCase(),
-      p_brand: form.brand,
-      p_model: form.model.trim(),
-      p_color: form.color,
-      p_owner_name: form.owner_name.trim(),
-      p_owner_phone: form.owner_phone.trim(),
-      p_commissariat_id: form.commissariat_id,
-      p_stolen_date: form.stolen_date,
-      p_latitude: coords?.lat ?? null,
-      p_longitude: coords?.lng ?? null,
-    });
-    setLoading(false);
+    try {
+      const plate = normalizePlateInput(form.plate_number);
+      const result = await initPayment({
+        plate_number: plate,
+        vin: form.vin.trim().toUpperCase(),
+        brand: form.brand,
+        model: form.model.trim(),
+        color: form.color,
+        owner_name: form.owner_name.trim(),
+        owner_phone: form.owner_phone.trim(),
+        payer_phone: (paymentPhone || form.owner_phone).trim(),
+        email: email.trim(),
+        commissariat_id: form.commissariat_id,
+        stolen_date: form.stolen_date,
+        latitude: coords?.lat ?? null,
+        longitude: coords?.lng ?? null,
+      });
 
-    if (error) {
-      setSubmitError(getErrorMessage(error, "L'enregistrement a échoué. Réessayez dans quelques instants."));
-      return;
+      const comm = commissariats.find((c) => c.id === form.commissariat_id);
+      saveSummary(result.ref, {
+        plate: plate || form.vin.trim().toUpperCase(),
+        vehicle: `${[form.brand, form.model.trim()].filter(Boolean).join(' ')} (${form.color})`,
+        owner: form.owner_name.trim(),
+        phone: form.owner_phone.trim(),
+        commissariat: comm ? `${comm.nom} (${comm.code})` : '—',
+        stolenDate: form.stolen_date,
+        coords: coords ? { lat: coords.lat, lng: coords.lng } : null,
+        reportNumber: result.report_number,
+      });
+
+      // Page de paiement CinetPay (Orange Money, Moov Money) ; retour automatique sur KodaCheck
+      window.location.assign(result.payment_url);
+    } catch (err) {
+      setSubmitError(getErrorMessage(err, 'Le paiement n’a pas pu être lancé. Réessayez.'));
+      setLoading(false);
     }
-    setReportNumber(typeof data === 'string' ? data : null);
-    setStep('success');
-  };
-
-  const shareOnWhatsApp = () => {
-    const comm = commissariats.find((c) => c.id === form.commissariat_id);
-    const lines = [
-      '🚨 *AVIS DE VOL — KODACHECK*',
-      '',
-      `• *Plaque / châssis :* ${form.plate_number || form.vin}`,
-      `• *Engin :* ${[form.brand, form.model].filter(Boolean).join(' ')} (${form.color})`,
-      `• *Contact :* ${form.owner_name} — ${form.owner_phone}`,
-      `• *Commissariat :* ${comm ? `${comm.nom} (${comm.code})` : '—'}`,
-      ...(reportNumber ? [`• *N° de dossier :* ${reportNumber}`] : []),
-      `• *Date du vol :* ${new Date(`${form.stolen_date}T00:00:00`).toLocaleDateString('fr-FR')}`,
-      coords ? `• *Position :* https://www.google.com/maps?q=${coords.lat},${coords.lng}` : '',
-      '',
-      'Si vous voyez cet engin, contactez le commissariat le plus proche.',
-    ].filter((l, i, arr) => l !== '' || arr[i - 1] !== '');
-    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(lines.join('\n'))}`, '_blank', 'noopener');
   };
 
   const models = VEHICLE_BRANDS[form.brand] ?? [];
 
   return (
     <Card className="p-5 sm:p-8">
-      <Stepper step={step} />
+      <DeclarationStepper index={step === 'form' ? 0 : 1} />
 
       {step === 'form' && (
         <form onSubmit={handleForm} className="space-y-6" noValidate>
@@ -314,101 +268,68 @@ export default function PublicDeclarerPage({ onDone }: { onDone: () => void }) {
       )}
 
       {step === 'payment' && (
-        <form onSubmit={handleRequestOtp} className="space-y-5">
+        <form onSubmit={handlePay} className="space-y-5">
           <div>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white">Frais de traitement</h1>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white">Frais de traitement : {FEE_LABEL}</h1>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              {FEE_LABEL} par Mobile Money. Un code de confirmation vous sera envoyé par SMS.
+              Vous allez être redirigé vers la page de paiement sécurisée <strong>CinetPay</strong> pour payer par
+              Orange Money ou Moov Money. Votre déclaration sera transmise aux forces de l'ordre dès le paiement confirmé.
             </p>
           </div>
-          {PAYMENT_DEMO_MODE && (
-            <Alert variant="warning" title="Mode démonstration">
-              Le paiement n'est pas encore relié à un opérateur : aucun montant ne sera prélevé.
-            </Alert>
-          )}
-          <Input
-            label="Numéro Mobile Money"
-            required
-            type="tel"
-            inputMode="tel"
-            value={paymentPhone}
-            onChange={(e) => setPaymentPhone(e.target.value)}
-            placeholder="70 00 00 00"
-            className="font-mono"
-            error={paymentPhone && !PHONE_RE.test(paymentPhone.trim()) ? 'Numéro invalide.' : undefined}
-          />
-          <div className="flex flex-col-reverse gap-2 sm:flex-row">
-            <Button variant="outline" onClick={() => setStep('form')} className="sm:w-1/3">
-              Retour
-            </Button>
-            <Button type="submit" variant="success" loading={loading} disabled={!PHONE_RE.test(paymentPhone.trim())} className="sm:flex-1">
-              Recevoir le code
-            </Button>
-          </div>
-        </form>
-      )}
 
-      {step === 'otp' && (
-        <form onSubmit={handleConfirm} className="space-y-5">
-          <div className="text-center">
-            <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-brand-50 text-brand-600 dark:bg-brand-500/10 dark:text-brand-400">
-              <KeyRound className="h-6 w-6" />
-            </span>
-            <h1 className="mt-3 text-xl font-bold text-slate-900 dark:text-white">Code de confirmation</h1>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Saisissez le code reçu au <span className="font-mono font-semibold">{paymentPhone}</span>.
-              {PAYMENT_DEMO_MODE && ' (Démonstration : n\'importe quel code de 4 chiffres.)'}
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm dark:border-slate-800 dark:bg-slate-950/50">
+            <p className="font-semibold text-slate-900 dark:text-white">{normalizePlateInput(form.plate_number) || form.vin.toUpperCase()}</p>
+            <p className="text-slate-600 dark:text-slate-400">
+              {[form.brand, form.model].filter(Boolean).join(' ')} · {form.color} · volé le{' '}
+              {new Date(`${form.stolen_date}T00:00:00`).toLocaleDateString('fr-FR')}
             </p>
           </div>
+
           {submitError && <Alert variant="error">{submitError}</Alert>}
-          <Input
-            aria-label="Code de confirmation"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            maxLength={6}
-            value={otp}
-            onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-            placeholder="••••"
-            className="h-14 text-center font-mono text-2xl tracking-[0.5em]"
-            autoFocus
-          />
-          <div className="flex flex-col-reverse gap-2 sm:flex-row">
-            <Button variant="outline" onClick={() => setStep('payment')} disabled={loading} className="sm:w-1/3">
-              Modifier le numéro
-            </Button>
-            <Button type="submit" variant="success" loading={loading} disabled={!/^\d{4,6}$/.test(otp)} className="sm:flex-1">
-              Confirmer et payer {FEE_LABEL}
-            </Button>
-          </div>
-        </form>
-      )}
 
-      {step === 'success' && (
-        <div className="space-y-5 py-4 text-center">
-          <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
-            <CheckCircle2 className="h-9 w-9" />
-          </span>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Déclaration enregistrée</h1>
-            {reportNumber && (
-              <p className="mt-3 inline-block rounded-lg bg-slate-100 px-3 py-1.5 text-sm text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                N° de dossier : <span className="font-mono font-bold">{reportNumber}</span>
-              </p>
-            )}
-            <p className="mx-auto mt-2 max-w-md text-sm text-slate-600 dark:text-slate-400">
-              Votre signalement est désormais visible par les patrouilles et le commissariat choisi. Présentez-vous au
-              commissariat pour finaliser votre plainte.
-            </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input
+              label="Numéro Mobile Money"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              value={paymentPhone}
+              onChange={(e) => setPaymentPhone(e.target.value)}
+              placeholder="70 00 00 00"
+              className="font-mono"
+              hint="Pré-rempli sur la page de paiement."
+              error={paymentPhone && !PHONE_RE.test(paymentPhone.trim()) ? 'Numéro invalide.' : undefined}
+            />
+            <Input
+              label="Email (facultatif)"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Pour recevoir le reçu"
+            />
           </div>
-          <div className="flex flex-col justify-center gap-2 sm:flex-row">
-            <Button variant="success" onClick={shareOnWhatsApp} icon={<Share2 className="h-4 w-4" />}>
-              Partager l'avis sur WhatsApp
+
+          <div className="flex flex-col-reverse gap-2 sm:flex-row">
+            <Button variant="outline" onClick={() => setStep('form')} disabled={loading} className="sm:w-1/3">
+              Modifier
             </Button>
-            <Button variant="outline" onClick={onDone}>
-              Terminer
+            <Button
+              type="submit"
+              variant="success"
+              size="lg"
+              loading={loading}
+              disabled={Boolean(paymentPhone) && !PHONE_RE.test(paymentPhone.trim())}
+              icon={<Lock className="h-4 w-4" />}
+              className="sm:flex-1"
+            >
+              {loading ? 'Ouverture du paiement…' : `Payer ${FEE_LABEL}`}
             </Button>
           </div>
-        </div>
+          <p className="text-center text-xs text-slate-500 dark:text-slate-400">
+            Paiement traité par CinetPay. KodaCheck ne voit jamais votre code secret Mobile Money.
+          </p>
+        </form>
       )}
     </Card>
   );

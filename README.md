@@ -46,6 +46,20 @@ supabase functions deploy create-agent --project-ref <ref-du-projet>
 
 `SUPABASE_URL`, `SUPABASE_ANON_KEY` et `SUPABASE_SERVICE_ROLE_KEY` sont fournies automatiquement par Supabase.
 
+## Paiement des déclarations citoyennes (CinetPay)
+
+1. Le citoyen remplit le formulaire puis clique sur « Payer » : l'Edge Function `payments` crée la
+   déclaration au statut `PENDING_PAYMENT` (invisible des agents) et le paiement chez CinetPay.
+2. Il paie sur la page sécurisée CinetPay (Orange Money, Moov Money), puis revient sur KodaCheck.
+3. CinetPay notifie `…/functions/v1/payments/webhook` ; la fonction vérifie le `notify_token`, **relit le
+   statut auprès de l'API CinetPay** (jamais celui de la notification) et active la déclaration.
+   Les agents de terrain reçoivent alors l'alerte en temps réel.
+4. Une déclaration non payée sous 24 h est supprimée.
+
+Mise en place : migration `supabase/migrations/20261107_paiements.sql`, fonction `payments` déployée
+**sans vérification JWT**, et secrets `CINETPAY_API_KEY`, `CINETPAY_API_PASSWORD`, `CINETPAY_ENV`
+(`sandbox` | `production`), `APP_URL`, `DECLARATION_FEE` (défaut 2000).
+
 ## Application installable et hors-ligne (PWA)
 
 - **Coquille** (pages, code, icônes, ~950 Ko) : pré-téléchargée par le service worker (`vite-plugin-pwa`).

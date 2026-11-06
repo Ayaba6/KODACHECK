@@ -108,21 +108,34 @@ export function useStolenRegistry(searchTerm: string, onNewAlert?: (v: StolenVeh
     else void localDb.stolen_vehicles.count().then(setLocalCount);
   }, [online, sync]);
 
-  // Alertes temps réel (abonnement unique, indépendant de la saisie)
+  // Alertes temps réel (abonnement unique, indépendant de la saisie) :
+  //  - INSERT : PV saisi par un agent (directement au statut STOLEN) ;
+  //  - UPDATE : déclaration citoyenne activée après paiement (PENDING_PAYMENT → STOLEN).
   useEffect(() => {
+    const alerted = new Set<string>();
+
+    const raise = async (vehicle: StolenVehicle) => {
+      if (vehicle.status !== 'STOLEN' || alerted.has(vehicle.id)) return;
+      alerted.add(vehicle.id);
+      if (vehicle.commissariat_id) {
+        const { data } = await supabase.from('commissariats').select('nom, code').eq('id', vehicle.commissariat_id).maybeSingle();
+        vehicle.commissariats = data;
+      }
+      await localDb.stolen_vehicles.put(vehicle).catch(() => undefined);
+      alertRef.current?.(vehicle);
+      void search(termRef.current);
+    };
+
     const channel = supabase
       .channel('stolen_vehicles_terrain')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'stolen_vehicles' }, async (payload) => {
-        const vehicle = payload.new as StolenVehicle;
-        if (vehicle.status && vehicle.status !== 'STOLEN') return;
-
-        if (vehicle.commissariat_id) {
-          const { data } = await supabase.from('commissariats').select('nom, code').eq('id', vehicle.commissariat_id).maybeSingle();
-          vehicle.commissariats = data;
-        }
-        await localDb.stolen_vehicles.put(vehicle).catch(() => undefined);
-        alertRef.current?.(vehicle);
-        void search(termRef.current);
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'stolen_vehicles' }, (payload) => {
+        void raise(payload.new as StolenVehicle);
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'stolen_vehicles' }, (payload) => {
+        const vehicle = payload.new as StolenVehicle & { activated_at?: string | null };
+        // Uniquement une activation récente (et non une simple correction d'une fiche existante)
+        const activatedAt = vehicle.activated_at ? new Date(vehicle.activated_at).getTime() : 0;
+        if (activatedAt && Date.now() - activatedAt < 10 * 60 * 1000) void raise(vehicle);
       })
       .subscribe();
 

@@ -37,6 +37,8 @@ export interface StolenVehicle {
   recovering_station?: string | null;
   recovered_date?: string | null;
   status: VehicleStatus | null;
+  /** Date d'activation d'une déclaration citoyenne (après paiement confirmé). */
+  activated_at?: string | null;
   /** Origine : PV saisi par un agent ou déclaration en ligne d'un citoyen. */
   source?: 'agent' | 'citoyen' | null;
   commissariat_id?: string | null;

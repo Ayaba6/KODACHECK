@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ArrowLeft, ArrowRight, BellRing, CreditCard, FileCheck2, Lock, MapPin, Radio, Smartphone } from 'lucide-react';
 import { Button, Card } from '../components/ui';
 import PublicDeclarerPage from './PublicDeclarerPage';
+import PaymentReturnPage from './PaymentReturnPage';
 
 const STEPS = [
   { icon: FileCheck2, title: 'Décrivez votre engin', text: 'Plaque ou numéro de châssis, marque, couleur et coordonnées du propriétaire.' },
@@ -15,8 +16,38 @@ const FEATURES = [
   { icon: Lock, tone: 'text-brand-600 bg-brand-50 dark:text-brand-400 dark:bg-brand-500/10', title: 'Données protégées', text: 'Vos informations ne sont accessibles qu\'aux forces de l\'ordre habilitées.' },
 ];
 
+/** Référence de paiement présente au retour de la page CinetPay (…/?paiement=KC…#citoyen). */
+function readPaymentRef(): string | null {
+  const ref = new URLSearchParams(window.location.search).get('paiement');
+  return ref && /^KC[A-Z0-9]{6,28}$/.test(ref) ? ref : null;
+}
+
+function clearPaymentRef() {
+  window.history.replaceState(null, '', `${window.location.pathname}#citoyen`);
+}
+
 export default function PublicLandingPage() {
   const [showForm, setShowForm] = useState(false);
+  const [paymentRef, setPaymentRef] = useState<string | null>(readPaymentRef);
+
+  if (paymentRef) {
+    return (
+      <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
+        <PaymentReturnPage
+          paymentRef={paymentRef}
+          onDone={() => {
+            clearPaymentRef();
+            setPaymentRef(null);
+          }}
+          onRetry={() => {
+            clearPaymentRef();
+            setPaymentRef(null);
+            setShowForm(true);
+          }}
+        />
+      </div>
+    );
+  }
 
   if (showForm) {
     return (
@@ -24,7 +55,7 @@ export default function PublicLandingPage() {
         <Button variant="ghost" size="sm" icon={<ArrowLeft className="h-4 w-4" />} onClick={() => setShowForm(false)} className="mb-4 -ml-2">
           Retour
         </Button>
-        <PublicDeclarerPage onDone={() => setShowForm(false)} />
+        <PublicDeclarerPage />
       </div>
     );
   }
