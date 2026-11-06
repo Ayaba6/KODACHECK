@@ -157,20 +157,45 @@ export function VehicleDetailsModal({ vehicle, onClose, onPrint, onMarkRecovered
   );
 }
 
+export interface RecoveryDetails {
+  station: string;
+  note: string;
+  latitude: number | null;
+  longitude: number | null;
+}
+
 interface RecoveryModalProps {
   vehicle: StolenVehicle | null;
   defaultStation?: string;
   onClose: () => void;
-  onConfirm: (station: string) => Promise<void>;
+  onConfirm: (details: RecoveryDetails) => Promise<void>;
 }
 
-/** Confirmation de restitution d'un engin. */
+/** Déclaration d'un engin retrouvé : unité, note et position (inscrites au journal des restitutions). */
 export function RecoveryModal({ vehicle, defaultStation = '', onClose, onConfirm }: RecoveryModalProps) {
   const [station, setStation] = useState(defaultStation);
+  const [note, setNote] = useState('');
+  const [shareLocation, setShareLocation] = useState(true);
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [locating, setLocating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (vehicle) setStation(defaultStation);
+    if (!vehicle) return;
+    setStation(defaultStation);
+    setNote('');
+    setCoords(null);
+    // Position du lieu où l'engin est retrouvé (facultative, utile pour les enquêteurs)
+    if (!navigator.geolocation) return;
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setLocating(false);
+      },
+      () => setLocating(false),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
+    );
   }, [vehicle, defaultStation]);
 
   const handleSubmit = async (e: FormEvent) => {
@@ -178,7 +203,12 @@ export function RecoveryModal({ vehicle, defaultStation = '', onClose, onConfirm
     if (!station.trim()) return;
     setSubmitting(true);
     try {
-      await onConfirm(station.trim());
+      await onConfirm({
+        station: station.trim(),
+        note: note.trim(),
+        latitude: shareLocation ? coords?.lat ?? null : null,
+        longitude: shareLocation ? coords?.lng ?? null : null,
+      });
     } finally {
       setSubmitting(false);
     }
@@ -190,8 +220,9 @@ export function RecoveryModal({ vehicle, defaultStation = '', onClose, onConfirm
       onClose={onClose}
       locked={submitting}
       size="sm"
+      sheetOnMobile
       icon={<CheckCircle2 className="h-5 w-5 text-emerald-500" />}
-      title="Confirmer la restitution"
+      title="Déclarer l'engin retrouvé"
       description={
         vehicle && (
           <>
@@ -204,14 +235,45 @@ export function RecoveryModal({ vehicle, defaultStation = '', onClose, onConfirm
         <Input
           label="Unité ayant retrouvé l'engin"
           required
-          autoFocus
           value={station}
           onChange={(e) => setStation(e.target.value)}
           placeholder="Ex : Commissariat central de Ouagadougou"
           disabled={submitting}
         />
+        <div className="space-y-1.5">
+          <label htmlFor="recovery-note" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+            Circonstances <span className="font-normal text-slate-400">(facultatif)</span>
+          </label>
+          <textarea
+            id="recovery-note"
+            rows={3}
+            maxLength={500}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            disabled={submitting}
+            placeholder="Ex : intercepté au contrôle de Tampouy, conducteur retenu"
+            className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+          />
+        </div>
+        <label className="flex items-start gap-3 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800">
+          <input
+            type="checkbox"
+            checked={shareLocation}
+            onChange={(e) => setShareLocation(e.target.checked)}
+            disabled={submitting}
+            className="mt-0.5 h-4 w-4 accent-brand-600"
+          />
+          <span className="min-w-0">
+            <span className="flex items-center gap-1.5 font-medium text-slate-800 dark:text-slate-200">
+              <MapPin className="h-4 w-4 text-brand-500" /> Joindre ma position
+            </span>
+            <span className="block text-xs text-slate-500 dark:text-slate-400">
+              {locating ? 'Localisation en cours…' : coords ? `Position relevée (${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)})` : 'Position indisponible sur cet appareil.'}
+            </span>
+          </span>
+        </label>
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          L'engin sera retiré de la liste des engins recherchés sur tous les terminaux.
+          L'engin sera retiré des engins recherchés sur tous les terminaux. La restitution est inscrite au journal à votre nom.
         </p>
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button variant="outline" onClick={onClose} disabled={submitting}>

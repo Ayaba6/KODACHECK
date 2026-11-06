@@ -9,6 +9,7 @@ import { DashboardLayout, PageHeader } from '../components/layout/DashboardLayou
 import { AccountCreatedModal, type CreatedAccount } from '../components/AccountCreatedModal';
 import { generateTempPassword } from '../lib/utils';
 import { Alert, Button, Card, CardHeader, EmptyState, IconButton, Input, Modal, Select, Skeleton, StatCard } from '../components/ui';
+import { RecoveryJournal } from '../components/RecoveryJournal';
 
 const EMPTY_COMM = { code: '', nom: '', ville: '', region: '' };
 
@@ -317,6 +318,10 @@ export default function SuperAdminDashboard() {
           )}
         </div>
       </Card>
+
+      <div className="mt-6">
+        <RecoveryJournal description="Toutes les restitutions du réseau national." />
+      </div>
 
       <EditCommissariatModal
         commissariat={editing}

@@ -40,6 +40,7 @@ import {
   Tabs,
 } from '../components/ui';
 import { VehicleDetailsModal } from '../components/vehicles/VehicleModals';
+import { RecoveryJournal } from '../components/RecoveryJournal';
 import { printVehicleReceipt } from '../components/vehicles/printReceipt';
 
 const AGENT_ROLES = ['agent_terrain', 'agent_bureau', 'AGENT_TERRAIN', 'AGENT_BUREAU', 'AGENT'];
@@ -336,6 +337,10 @@ export default function CommissaireDashboard() {
           )}
         </div>
       </Card>
+
+      <div className="mt-6">
+        <RecoveryJournal description="Engins retrouvés par vos agents, ou déclarés par votre commissariat et retrouvés ailleurs." />
+      </div>
 
       <VehicleDetailsModal
         vehicle={selected}

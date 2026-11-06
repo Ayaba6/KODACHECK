@@ -3,13 +3,15 @@ import { AlertTriangle, Bell, Camera, CheckCircle2, ChevronRight, CloudOff, Help
 import { useToast } from '../context/ToastContext';
 import { useStolenRegistry } from '../hooks/useStolenRegistry';
 import { useOcrReadiness } from '../hooks/useOcrReadiness';
-import { formatDate, vehicleLabel } from '../lib/utils';
+import { formatDate, getErrorMessage, vehicleLabel } from '../lib/utils';
 import { compactPlate, describePlate, extractSerial, isCompletePlate, platesMatch } from '../utils/plateUtils';
 import type { StolenVehicle } from '../types';
 import { DashboardLayout } from '../components/layout/DashboardLayout';
 import CameraScanner from '../components/CameraScanner';
 import { Badge, Button, Card, EmptyState, IconButton, Input, Modal, PlateBadge, Skeleton } from '../components/ui';
-import { VehicleDetailsModal } from '../components/vehicles/VehicleModals';
+import { RecoveryModal, VehicleDetailsModal, type RecoveryDetails } from '../components/vehicles/VehicleModals';
+import { markVehicleRecovered } from '../lib/recovery';
+import { useAuth } from '../context/AuthContext';
 
 function relativeSync(iso: string | null): string {
   if (!iso) return 'jamais';
@@ -125,7 +127,24 @@ export default function AgentTerrainDashboard() {
     [toast],
   );
 
-  const { online, results, loading, syncing, lastSync, localCount, sync } = useStolenRegistry(term, onNewAlert);
+  const { online, results, loading, syncing, lastSync, localCount, sync, forget } = useStolenRegistry(term, onNewAlert);
+  const { profile } = useAuth();
+  const [toRecover, setToRecover] = useState<StolenVehicle | null>(null);
+
+  const handleRecovered = async (details: RecoveryDetails) => {
+    if (!toRecover) return;
+    try {
+      await markVehicleRecovered(toRecover.id, details);
+    } catch (err) {
+      toast.error("Déclaration impossible", getErrorMessage(err));
+      return;
+    }
+    toast.success('Engin déclaré retrouvé', `${toRecover.plate_number ?? vehicleLabel(toRecover)} est retiré des engins recherchés.`);
+    const id = toRecover.id;
+    setToRecover(null);
+    setSelected(null);
+    await forget(id);
+  };
   const ocr = useOcrReadiness(online);
 
   const handleSync = async () => {
@@ -265,7 +284,23 @@ export default function AgentTerrainDashboard() {
 
       {showCamera && <CameraScanner onScanComplete={handleScan} onClose={closeCamera} />}
 
-      <VehicleDetailsModal vehicle={selected} onClose={() => setSelected(null)} />
+      <VehicleDetailsModal
+        vehicle={selected}
+        onClose={() => setSelected(null)}
+        onMarkRecovered={(v) => {
+          if (!online) {
+            toast.warning("Connexion requise", "La déclaration d’un engin retrouvé doit être transmise au registre national : réessayez avec du réseau.");
+            return;
+          }
+          setToRecover(v);
+        }}
+      />
+      <RecoveryModal
+        vehicle={toRecover}
+        defaultStation={profile?.commissariats?.nom ?? ""}
+        onClose={() => setToRecover(null)}
+        onConfirm={handleRecovered}
+      />
 
       <Modal
         open={showAlerts}
