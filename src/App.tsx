@@ -112,6 +112,15 @@ export default function App() {
     return <AccountProblem title="Profil indisponible">{profileError}</AccountProblem>;
   }
 
+  if (profile?.active === false) {
+    return (
+      <AccountProblem title="Compte désactivé">
+        Votre compte KodaCheck a été désactivé par votre hiérarchie : vous n'avez plus accès au registre. Si vous pensez
+        qu'il s'agit d'une erreur, contactez votre commissaire.
+      </AccountProblem>
+    );
+  }
+
   return <Suspense fallback={<SplashScreen />}>{renderDashboard()}</Suspense>;
 
   function renderDashboard() {
