@@ -3,7 +3,7 @@ import { Bell, Camera, CheckCircle2, ChevronRight, CloudOff, RefreshCw, Search, 
 import { useToast } from '../context/ToastContext';
 import { useStolenRegistry } from '../hooks/useStolenRegistry';
 import { formatDate, vehicleLabel } from '../lib/utils';
-import { compactPlate } from '../utils/plateUtils';
+import { compactPlate, describePlate, platesMatch } from '../utils/plateUtils';
 import type { StolenVehicle } from '../types';
 import { DashboardLayout } from '../components/layout/DashboardLayout';
 import CameraScanner from '../components/CameraScanner';
@@ -25,7 +25,7 @@ function Verdict({ term, results, loading, reliable, onOpen }: { term: string; r
   const needle = compactPlate(term);
   if (needle.length < 4 || loading) return null;
 
-  const exact = results.find((v) => compactPlate(v.plate_number) === needle || compactPlate(v.vin) === needle);
+  const exact = results.find((v) => platesMatch(v.plate_number, term) || compactPlate(v.vin) === needle);
 
   if (exact) {
     return (
@@ -48,12 +48,18 @@ function Verdict({ term, results, loading, reliable, onOpen }: { term: string; r
   }
 
   if (results.length === 0 && reliable) {
+    const info = describePlate(term);
     return (
       <div className="flex animate-scale-in items-center gap-4 rounded-2xl bg-emerald-600 p-4 text-white shadow-lg shadow-emerald-600/20">
         <CheckCircle2 className="h-10 w-10 shrink-0" />
-        <div>
+        <div className="min-w-0">
           <p className="text-lg font-extrabold uppercase tracking-tight">Aucun signalement</p>
           <p className="text-sm text-emerald-50">Aucun avis de vol en cours pour « {term.toUpperCase()} ».</p>
+          {info && (
+            <p className="mt-0.5 truncate text-xs text-emerald-100">
+              {[info.category, info.region].filter(Boolean).join(' · ')}
+            </p>
+          )}
         </div>
       </div>
     );

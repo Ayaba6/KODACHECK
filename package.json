@@ -4,7 +4,10 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "ocr:assets": "node scripts/copy-ocr-assets.mjs",
+    "predev": "npm run ocr:assets",
     "dev": "vite",
+    "prebuild": "npm run ocr:assets",
     "build": "tsc && vite build",
     "typecheck": "tsc",
     "lint": "oxlint",
@@ -19,6 +22,7 @@
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
+    "@tesseract.js-data/eng": "^1.0.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.4",

@@ -3,6 +3,7 @@ import { FilePlus2, ShieldAlert } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getErrorMessage, todayISO } from '../lib/utils';
 import { BRAND_OPTIONS, COLOR_OPTIONS, VEHICLE_BRANDS } from '../lib/vehicleCatalog';
+import { normalizePlateInput } from '../utils/plateUtils';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { Alert, Button, Card, CardHeader, Input, Select } from './ui';
@@ -56,7 +57,7 @@ export function DeclarerPage({ onSuccess }: { onSuccess?: () => void }) {
 
     setLoading(true);
     const { error } = await supabase.rpc('create_stolen_vehicle_with_pv', {
-      p_plate_number: form.plate_number.trim().toUpperCase(),
+      p_plate_number: normalizePlateInput(form.plate_number),
       p_brand: form.brand,
       p_model: form.model.trim(),
       p_color: form.color,
@@ -99,7 +100,8 @@ export function DeclarerPage({ onSuccess }: { onSuccess?: () => void }) {
               label="Plaque d'immatriculation"
               value={form.plate_number}
               onChange={(e) => update('plate_number', e.target.value.toUpperCase())}
-              placeholder="11 RJ 8596"
+              placeholder="0029 D1 08"
+              hint="Format : n° d'ordre, catégorie, région (ex : 0029 D1 08)."
               className="font-mono uppercase"
               error={errors.plate_number}
               autoFocus

@@ -4,6 +4,7 @@ import { localDb } from '../lib/db';
 import { getLastSync, syncVehiclesWithLocalDB } from '../lib/syncService';
 import { sanitizeSearch, toIlikePattern } from '../lib/utils';
 import type { StolenVehicle } from '../types';
+import { normalizePlateInput, platesMatch } from '../utils/plateUtils';
 
 export function useOnlineStatus(): boolean {
   const [online, setOnline] = useState(navigator.onLine);
@@ -32,6 +33,7 @@ async function searchLocal(term: string): Promise<StolenVehicle[]> {
       (v) =>
         !needle ||
         compact(v.plate_number).includes(needle) ||
+        platesMatch(v.plate_number, term) ||
         compact(v.vin).includes(needle) ||
         compact(v.report_number).includes(needle) ||
         (v.owner_name ?? '').toUpperCase().includes(nameNeedle),
@@ -69,7 +71,7 @@ export function useStolenRegistry(searchTerm: string, onNewAlert?: (v: StolenVeh
           .order('created_at', { ascending: false })
           .limit(50);
         if (clean) {
-          const p = toIlikePattern(clean);
+          const p = toIlikePattern(normalizePlateInput(clean));
           req = req.or(`plate_number.ilike.${p},vin.ilike.${p},owner_name.ilike.${p},report_number.ilike.${p}`);
         }
         const { data, error } = await req;
