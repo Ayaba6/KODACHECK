@@ -80,6 +80,7 @@ export default function PublicDeclarerPage({ onDone }: { onDone: () => void }) {
 
   const [paymentPhone, setPaymentPhone] = useState('');
   const [otp, setOtp] = useState('');
+  const [reportNumber, setReportNumber] = useState<string | null>(null);
 
   useEffect(() => {
     loadCommissariats();
@@ -161,28 +162,27 @@ export default function PublicDeclarerPage({ onDone }: { onDone: () => void }) {
     setLoading(true);
     setSubmitError(null);
 
-    const { error } = await supabase.from('stolen_vehicles').insert([
-      {
-        plate_number: normalizePlateInput(form.plate_number) || null,
-        vin: form.vin.trim().toUpperCase() || null,
-        brand: form.brand,
-        model: form.model.trim() || null,
-        color: form.color,
-        owner_name: form.owner_name.trim(),
-        owner_phone: form.owner_phone.trim(),
-        commissariat_id: form.commissariat_id,
-        stolen_date: form.stolen_date,
-        latitude: coords?.lat ?? null,
-        longitude: coords?.lng ?? null,
-        status: 'STOLEN',
-      },
-    ]);
+    // Fonction contrôlée côté serveur : un visiteur n'a aucun accès direct au registre.
+    const { data, error } = await supabase.rpc('declare_stolen_vehicle', {
+      p_plate_number: normalizePlateInput(form.plate_number),
+      p_vin: form.vin.trim().toUpperCase(),
+      p_brand: form.brand,
+      p_model: form.model.trim(),
+      p_color: form.color,
+      p_owner_name: form.owner_name.trim(),
+      p_owner_phone: form.owner_phone.trim(),
+      p_commissariat_id: form.commissariat_id,
+      p_stolen_date: form.stolen_date,
+      p_latitude: coords?.lat ?? null,
+      p_longitude: coords?.lng ?? null,
+    });
     setLoading(false);
 
     if (error) {
       setSubmitError(getErrorMessage(error, "L'enregistrement a échoué. Réessayez dans quelques instants."));
       return;
     }
+    setReportNumber(typeof data === 'string' ? data : null);
     setStep('success');
   };
 
@@ -195,6 +195,7 @@ export default function PublicDeclarerPage({ onDone }: { onDone: () => void }) {
       `• *Engin :* ${[form.brand, form.model].filter(Boolean).join(' ')} (${form.color})`,
       `• *Contact :* ${form.owner_name} — ${form.owner_phone}`,
       `• *Commissariat :* ${comm ? `${comm.nom} (${comm.code})` : '—'}`,
+      ...(reportNumber ? [`• *N° de dossier :* ${reportNumber}`] : []),
       `• *Date du vol :* ${new Date(`${form.stolen_date}T00:00:00`).toLocaleDateString('fr-FR')}`,
       coords ? `• *Position :* https://www.google.com/maps?q=${coords.lat},${coords.lng}` : '',
       '',
@@ -389,6 +390,11 @@ export default function PublicDeclarerPage({ onDone }: { onDone: () => void }) {
           </span>
           <div>
             <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Déclaration enregistrée</h1>
+            {reportNumber && (
+              <p className="mt-3 inline-block rounded-lg bg-slate-100 px-3 py-1.5 text-sm text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                N° de dossier : <span className="font-mono font-bold">{reportNumber}</span>
+              </p>
+            )}
             <p className="mx-auto mt-2 max-w-md text-sm text-slate-600 dark:text-slate-400">
               Votre signalement est désormais visible par les patrouilles et le commissariat choisi. Présentez-vous au
               commissariat pour finaliser votre plainte.

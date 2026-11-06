@@ -154,7 +154,7 @@ export default function CommissaireDashboard() {
 
   const handleRemove = async () => {
     if (!toRemove) return;
-    const { error: err } = await supabase.from('profiles').update({ commissariat_id: null }).eq('id', toRemove.id);
+    const { error: err } = await supabase.rpc('remove_agent_from_commissariat', { p_agent_id: toRemove.id });
     if (err) {
       toast.error("Impossible de retirer l'agent", getErrorMessage(err));
       return;

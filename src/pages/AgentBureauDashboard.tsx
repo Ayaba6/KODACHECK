@@ -28,7 +28,7 @@ function CitizenReports() {
     const { data, error: err } = await supabase
       .from('stolen_vehicles')
       .select('*, commissariats:commissariat_id (nom, code)')
-      .is('report_number', null)
+      .eq('source', 'citoyen')
       .order('created_at', { ascending: false })
       .limit(100);
     if (err) setError(getErrorMessage(err));
